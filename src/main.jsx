@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {createRoot} from 'react-dom/client';
 import './styles.css';
 
@@ -19,19 +19,191 @@ const requirements=[
  ['OEM Authorization','failed','Authorization validity not detected','Required authorization needs manual verification']
 ];
 function Badge({children,type}){return <span className={'badge '+(type||'')}>{children}</span>}
-function App(){
- const [authenticated,setAuthenticated]=useState(false),[page,setPage]=useState('Dashboard'),[collapsed,setCollapsed]=useState(false),[showWorkflow,setWorkflow]=useState(false),[step,setStep]=useState(1),[query,setQuery]=useState(''),[selected,setSelected]=useState('ABC Technologies Pvt. Ltd.'),[expanded,setExpanded]=useState(null),[decision,setDecision]=useState(null),[remark,setRemark]=useState(''),[toast,setToast]=useState('');
+
+/* ---------------------------------------------------------------------- */
+/* ROUTER                                                                  */
+/* Lightweight History-API router — no external dependency required.      */
+/* Handles: initial URL, browser back/forward, and programmatic navigate. */
+/* ---------------------------------------------------------------------- */
+function useRoute(){
+ const [path,setPathState]=useState(window.location.pathname);
+ useEffect(()=>{
+  const onPop=()=>setPathState(window.location.pathname);
+  window.addEventListener('popstate',onPop);
+  return ()=>window.removeEventListener('popstate',onPop);
+ },[]);
+ const navigate=(to)=>{
+  if(window.location.pathname!==to)window.history.pushState({},'',to);
+  setPathState(to);
+ };
+ return [path,navigate];
+}
+
+function AppRouter(){
+ const [authenticated,setAuthenticated]=useState(false);
+ const [path,navigate]=useRoute();
+
+ const login=()=>{setAuthenticated(true);navigate('/dashboard')};
+ const logout=()=>{setAuthenticated(false);navigate('/')};
+
+ // Resolve which screen this path + auth state should show.
+ let view;
+ if(path==='/login')view=authenticated?'app':'login';
+ else if(path==='/')view='landing';
+ else view=authenticated?'app':'landing';
+
+ // Keep the address bar consistent with what's actually rendered —
+ // e.g. an authenticated user hitting /login lands on the dashboard URL,
+ // and an unauthenticated user on an unknown/protected path is sent home.
+ useEffect(()=>{
+  if(view==='app'&&path==='/login')navigate('/dashboard');
+  if(view==='landing'&&path!=='/'&&path!=='/login')navigate('/');
+ },[view,path]);
+
+ if(view==='login')return <Login onSignIn={login}/>;
+ if(view==='app')return <App onLogout={logout}/>;
+ return <Landing onLogin={()=>navigate('/login')}/>;
+}
+
+/* ---------------------------------------------------------------------- */
+/* PAGE 1 — LANDING PAGE                                                   */
+/* ---------------------------------------------------------------------- */
+function Landing({onLogin}){
+ const [navOpen,setNavOpen]=useState(false);
+ const features=[
+  ['✓','AI-Powered Verification','Documents are read and cross-checked against tender requirements automatically.'],
+  ['◉','Multi-Portal Validation','Bidder claims are checked against GSTN, Udyam, MCA and other government sources.'],
+  ['▤','Risk & Compliance Scoring','Every bidder gets a transparent score, backed by the evidence behind it.'],
+  ['◷','Audit-Ready Evidence','Every verification and officer decision is logged for complete traceability.']
+ ];
+ const categories=['GST','PAN','Udyam / MSME','Make in India','EPFO / ESIC','Startup India','NSIC','OEM Authorization','MCA','BIS / DPIIT'];
+ const security=[
+  ['◇','Role-based access','Officers see only the tenders and bids their role permits.'],
+  ['◉','Secure evidence storage','Submitted documents and extracted evidence are stored securely.'],
+  ['◷','Complete audit traceability','Every AI assessment and officer action is recorded, end to end.'],
+  ['✓','Officer-controlled final decisions','AI assists with evidence — the Procurement Officer decides.']
+ ];
+ return <div className="landing">
+  <header className="landing-nav">
+   <div className="landing-brand"><div className="logo">G</div><div><b>GeM Compliance AI</b><small>AI-POWERED PROCUREMENT VERIFICATION</small></div></div>
+   <nav className={navOpen?'open':''}>
+    <a href="#product">Product</a>
+    <a href="#features">Features</a>
+    <a href="#security">Security</a>
+    <a href="#about">About</a>
+    <button className="primary nav-login" onClick={onLogin}>Officer Login</button>
+   </nav>
+   <button className="nav-toggle" aria-label="Toggle navigation" onClick={()=>setNavOpen(!navOpen)}>{navOpen?'×':'☰'}</button>
+  </header>
+
+  <section className="landing-hero" id="product">
+   <div className="landing-hero-copy">
+    <p className="eyebrow">SECURE PROCUREMENT WORKSPACE</p>
+    <h1>Intelligent Procurement Compliance</h1>
+    <p className="landing-hero-sub">AI-powered verification and decision support for GeM procurement officers.</p>
+    <p className="landing-hero-desc">GeM Compliance AI reads bidder documents, checks them against official government sources, and gives every procurement officer a clear, evidence-backed view of compliance — so qualification decisions are faster, and fully auditable.</p>
+    <div className="landing-cta-row">
+     <button className="primary hero-cta" onClick={onLogin}>Login to Officer Workspace →</button>
+     <a className="secondary hero-cta" href="#features">Explore Platform</a>
+    </div>
+   </div>
+   <div className="landing-hero-visual" aria-hidden="true">
+    <div className="hero-panel">
+     <div className="hero-panel-head"><span/><span/><span/><b>Bid Verification</b></div>
+     <div className="hero-panel-score">
+      <div className="hero-ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42"/><circle className="hero-ring-fill" cx="50" cy="50" r="42"/></svg><div><b>94</b><span>/100</span></div></div>
+      <div className="hero-panel-rows">
+       <p><i className="hero-dot verified"/> GST Registration <b>Verified</b></p>
+       <p><i className="hero-dot verified"/> Udyam Registration <b>Verified</b></p>
+       <p><i className="hero-dot review"/> Turnover Requirement <b>Review</b></p>
+      </div>
+     </div>
+    </div>
+   </div>
+  </section>
+
+  <section className="landing-section" id="features">
+   <div className="landing-section-head"><p className="eyebrow">WHY GeM COMPLIANCE AI</p><h2>Built for procurement officers, not generic document review</h2></div>
+   <div className="landing-feature-grid">
+    {features.map(f=><div className="landing-feature-card" key={f[1]}><div className="landing-feature-icon">{f[0]}</div><h3>{f[1]}</h3><p>{f[2]}</p></div>)}
+   </div>
+  </section>
+
+  <section className="landing-section landing-categories">
+   <div className="landing-section-head"><p className="eyebrow">COMPLIANCE COVERAGE</p><h2>Verification across the categories that matter</h2></div>
+   <div className="landing-category-chips">
+    {categories.map(c=><span key={c}>{c}</span>)}
+   </div>
+  </section>
+
+  <section className="landing-section landing-security" id="security">
+   <div className="landing-security-copy"><p className="eyebrow">SECURITY & GOVERNANCE</p><h2>Evidence you can trust, decisions you can defend</h2><p>Every part of the workflow is designed around one principle: the AI assists, and the Procurement Officer decides — with a full record behind every decision.</p></div>
+   <div className="landing-security-grid">
+    {security.map(s=><div className="landing-security-item" key={s[1]}><div className="landing-security-icon">{s[0]}</div><div><b>{s[1]}</b><p>{s[2]}</p></div></div>)}
+   </div>
+  </section>
+
+  <section className="landing-final-cta" id="about">
+   <h2>Ready to verify procurement compliance?</h2>
+   <p>Sign in to your officer workspace and continue where your verifications left off.</p>
+   <button className="primary" onClick={onLogin}>Enter Officer Workspace →</button>
+  </section>
+
+  <footer className="landing-footer">
+   <div>
+    <div className="landing-brand"><div className="logo">G</div><div><b>GeM Compliance AI</b><small>AI-powered procurement verification</small></div></div>
+    <p>Authorized Procurement Personnel Only</p>
+   </div>
+   <div className="landing-footer-links"><a href="#">Privacy</a><a href="#">Security</a><a href="#">Contact</a></div>
+  </footer>
+ </div>
+}
+
+/* ---------------------------------------------------------------------- */
+/* PAGE 2 — LOGIN PAGE (unchanged design, now its own route)              */
+/* ---------------------------------------------------------------------- */
+function Login({onSignIn}){
+ const [showPassword,setShowPassword]=useState(false);
+ return <div className="login-page login-page-solo"><form className="login-card" onSubmit={e=>{e.preventDefault();onSignIn()}}><div className="login-brand"><div className="logo">G</div><div><b>GeM Compliance AI</b><small>AI-POWERED PROCUREMENT VERIFICATION</small></div></div><div className="login-logo">G</div><h2>Welcome back</h2><p>Sign in to your authorized officer workspace.</p><label>Official email<input type="email" defaultValue="officer@cpse.gov.in" required/></label><label>Password<span className="password-field"><input type={showPassword?'text':'password'} defaultValue="Procurement@2026" required/><button type="button" className="password-toggle" aria-label={showPassword?'Hide password':'Show password'} title={showPassword?'Hide password':'Show password'} onClick={()=>setShowPassword(!showPassword)}>{showPassword?'◉':'◌'}</button></span></label><div className="remember"><label><input type="checkbox" defaultChecked/> Remember me</label><button type="button">Forgot password?</button></div><button className="primary sign-in">Sign in securely →</button><div className="authorized">⌾ Authorized Procurement Personnel Only</div></form></div>
+}
+
+/* ---------------------------------------------------------------------- */
+/* AUTHENTICATED WORKSPACE (unchanged aside from onLogout wiring)         */
+/* ---------------------------------------------------------------------- */
+function App({onLogout}){
+ const [page,setPage]=useState('Dashboard'),[collapsed,setCollapsed]=useState(false),[showWorkflow,setWorkflow]=useState(false),[step,setStep]=useState(1),[query,setQuery]=useState(''),[selected,setSelected]=useState('ABC Technologies Pvt. Ltd.'),[expanded,setExpanded]=useState(null),[decision,setDecision]=useState(null),[remark,setRemark]=useState(''),[toast,setToast]=useState(''),[profileOpen,setProfileOpen]=useState(false);
  const notify=m=>{setToast(m);setTimeout(()=>setToast(''),2600)};
  const [selectedTender,setSelectedTender]=useState(null);
  const shown=bidders.filter(b=>b.name.toLowerCase().includes(query.toLowerCase()));
  const selectPage=p=>{setPage(p); if(p==='Bid Verification')setSelected('ABC Technologies Pvt. Ltd.')};
- if(!authenticated)return <Login onSignIn={()=>setAuthenticated(true)}/>;
+ const profileRef=useRef(null);
+ useEffect(()=>{
+  if(!profileOpen)return;
+  const onOutside=e=>{if(profileRef.current&&!profileRef.current.contains(e.target))setProfileOpen(false)};
+  const onKey=e=>{if(e.key==='Escape')setProfileOpen(false)};
+  document.addEventListener('mousedown',onOutside);
+  document.addEventListener('keydown',onKey);
+  return ()=>{document.removeEventListener('mousedown',onOutside);document.removeEventListener('keydown',onKey)};
+ },[profileOpen]);
  return <div className={'app '+(collapsed?'collapsed':'')}>
   <aside className="sidebar"><div className="brand"><div className="logo">G</div>{!collapsed&&<div><b>GeM Compliance AI</b><small>AI-POWERED PROCUREMENT</small></div>}</div>
    <button className="collapse" onClick={()=>setCollapsed(!collapsed)}>{collapsed?'›':'‹'}</button>
    <nav>{nav.map((n,i)=><button key={n} className={page===n?'active':''} onClick={()=>selectPage(n)}><i>{icons[i]}</i>{!collapsed&&n}</button>)}</nav>
    <div className="officer"><div className="avatar">PO</div>{!collapsed&&<div><b>Procurement Officer</b><small><em/> Online</small></div>}</div></aside>
-  <main><header><div className="crumb">Workspace <span>/</span> {page}</div><div className="header-actions"><div className="search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search tender, bidder, GSTIN..."/></div><button className="icon-btn" onClick={()=>notify('3 compliance issues require review')}>♧<sup>3</sup></button><button className="icon-btn">?</button><div className="profile"><div className="avatar">PO</div><span>Procurement Officer</span><b>⌄</b></div></div></header>
+  <main><header><div className="crumb">Workspace <span>/</span> {page}</div><div className="header-actions"><div className="search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search tender, bidder, GSTIN..."/></div><button className="icon-btn" onClick={()=>notify('3 compliance issues require review')}>♧<sup>3</sup></button><button className="icon-btn">?</button>
+   <div className="profile-wrap" ref={profileRef}><button className="profile" onClick={()=>setProfileOpen(!profileOpen)} aria-haspopup="true" aria-expanded={profileOpen}><div className="avatar">PO</div><span>Procurement Officer</span><b className={profileOpen?'flip':''}>⌄</b></button>
+    {profileOpen&&<div className="profile-menu" role="menu">
+     <div className="profile-menu-head"><div className="avatar">PO</div><div><b>Procurement Officer</b><small>Authorized Officer</small></div></div>
+     <div className="profile-menu-group">
+      <button role="menuitem" onClick={()=>{setProfileOpen(false);notify('Profile settings opened')}}><i>⚙</i>Profile settings</button>
+      <button role="menuitem" onClick={()=>{setProfileOpen(false);notify('Account & security opened')}}><i>🔒</i>Account & Security</button>
+     </div>
+     <div className="profile-menu-group">
+      <button role="menuitem" className="danger" onClick={()=>{setProfileOpen(false);onLogout()}}><i>↪</i>Log out</button>
+     </div>
+    </div>}
+   </div>
+   </div></header>
    <section className="content">
     {page==='Dashboard'&&<Dashboard onNew={()=>{setStep(1);setWorkflow(true)}} onPage={selectPage} shown={shown}/>} 
     {page==='Tenders'&&<Tenders query={query} onView={tender=>{setSelectedTender(tender);setPage('Tender Details')}} onNew={()=>{setStep(1);setWorkflow(true)}}/>}
@@ -50,10 +222,6 @@ function App(){
   <WhyDetails />
   {toast&&<div className="toast">✓ {toast}</div>}
  </div>
-}
-function Login({onSignIn}){
- const [showPassword,setShowPassword]=useState(false);
- return <div className="login-page"><div className="login-panel"><div className="login-brand"><div className="logo">G</div><div><b>GeM Compliance AI</b><small>AI-POWERED PROCUREMENT VERIFICATION</small></div></div><p className="eyebrow">SECURE PROCUREMENT WORKSPACE</p><h1>Intelligent procurement compliance</h1><p className="login-sub">AI-powered verification and decision support for GeM procurement officers.</p><div className="security-points"><span>✓ Role-based access</span><span>✓ Encrypted evidence storage</span><span>✓ Complete audit traceability</span></div></div><form className="login-card" onSubmit={e=>{e.preventDefault();onSignIn()}}><div className="login-logo">G</div><h2>Welcome back</h2><p>Sign in to your authorized officer workspace.</p><label>Official email<input type="email" defaultValue="officer@cpse.gov.in" required/></label><label>Password<span className="password-field"><input type={showPassword?'text':'password'} defaultValue="Procurement@2026" required/><button type="button" className="password-toggle" aria-label={showPassword?'Hide password':'Show password'} title={showPassword?'Hide password':'Show password'} onClick={()=>setShowPassword(!showPassword)}>{showPassword?'◉':'◌'}</button></span></label><div className="remember"><label><input type="checkbox" defaultChecked/> Remember me</label><button type="button">Forgot password?</button></div><button className="primary sign-in">Sign in securely →</button><div className="authorized">⌾ Authorized Procurement Personnel Only</div></form></div>
 }
 function Dashboard({onNew,onPage,shown}){const kpis=[['◈','12','Active Tenders','+2 this month'],['◷','28','Bids Under Verification','6 due today'],['◉','8','Pending Reviews','Action needed'],['⚠','4','High Risk Bidders','2 new this week'],['✓','146','Verified Bids','+12.5%'],['◌','18 min','Avg. Verification Time','4 min faster']];return <>
  <div className="hero"><div><p className="eyebrow">PROCUREMENT COMMAND CENTER</p><h1>Good morning, Procurement Officer</h1><p>Here’s your procurement compliance overview.</p></div><div><button className="secondary">⇩ Generate Report</button><button className="primary" onClick={onNew}>＋ New Verification</button></div></div>
@@ -123,4 +291,4 @@ function TenderDetails({tender,onBack,onVerify}){
 }
 Tenders = TenderList;
 Verification = VerificationWithFilter;
-createRoot(document.getElementById('root')).render(<App/>);
+createRoot(document.getElementById('root')).render(<AppRouter/>);
