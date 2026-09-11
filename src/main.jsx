@@ -39,6 +39,38 @@ function useRoute(){
  return [path,navigate];
 }
 
+/* ---------------------------------------------------------------------- */
+/* SCROLL REVEAL                                                          */
+/* Reusable, lightweight (no library) — observes every ".reveal-on-scroll"*/
+/* element currently in the DOM and fades/slides it in the first time it  */
+/* enters the viewport. Call inside any component's effect after its      */
+/* content (re)renders, e.g. useScrollReveal() on mount, or               */
+/* useScrollReveal([page]) to re-scan after a page/section swap.          */
+/* ---------------------------------------------------------------------- */
+function useScrollReveal(deps=[]){
+ useEffect(()=>{
+  const els=document.querySelectorAll('.reveal-on-scroll:not(.revealed)');
+  if(!els.length)return;
+  const reduceMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(reduceMotion||typeof IntersectionObserver==='undefined'){
+   els.forEach(el=>el.classList.add('revealed'));
+   return;
+  }
+  const observer=new IntersectionObserver((entries)=>{
+   entries.forEach(entry=>{
+    if(entry.isIntersecting){
+     entry.target.classList.add('revealed');
+     observer.unobserve(entry.target);
+    }
+   });
+  },{threshold:0.15,rootMargin:'0px 0px -40px 0px'});
+  els.forEach(el=>observer.observe(el));
+  return ()=>observer.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },deps);
+}
+
+
 function AppRouter(){
  const [authenticated,setAuthenticated]=useState(false);
  const [path,navigate]=useRoute();
@@ -70,6 +102,7 @@ function AppRouter(){
 /* ---------------------------------------------------------------------- */
 function Landing({onLogin}){
  const [navOpen,setNavOpen]=useState(false);
+ useScrollReveal();
  const features=[
   ['✓','AI-Powered Verification','Documents are read and cross-checked against tender requirements automatically.'],
   ['◉','Multi-Portal Validation','Bidder claims are checked against GSTN, Udyam, MCA and other government sources.'],
@@ -123,33 +156,33 @@ function Landing({onLogin}){
   </section>
 
   <section className="landing-section" id="features">
-   <div className="landing-section-head"><p className="eyebrow">WHY GeM COMPLIANCE AI</p><h2>Built for procurement officers, not generic document review</h2></div>
+   <div className="landing-section-head reveal-on-scroll"><p className="eyebrow">WHY GeM COMPLIANCE AI</p><h2>Built for procurement officers, not generic document review</h2></div>
    <div className="landing-feature-grid">
-    {features.map(f=><div className="landing-feature-card" key={f[1]}><div className="landing-feature-icon">{f[0]}</div><h3>{f[1]}</h3><p>{f[2]}</p></div>)}
+    {features.map((f,i)=><div className="landing-feature-card reveal-on-scroll" style={{transitionDelay:(i%4)*100+'ms'}} key={f[1]}><div className="landing-feature-icon">{f[0]}</div><h3>{f[1]}</h3><p>{f[2]}</p></div>)}
    </div>
   </section>
 
   <section className="landing-section landing-categories">
-   <div className="landing-section-head"><p className="eyebrow">COMPLIANCE COVERAGE</p><h2>Verification across the categories that matter</h2></div>
-   <div className="landing-category-chips">
+   <div className="landing-section-head reveal-on-scroll"><p className="eyebrow">COMPLIANCE COVERAGE</p><h2>Verification across the categories that matter</h2></div>
+   <div className="landing-category-chips reveal-on-scroll">
     {categories.map(c=><span key={c}>{c}</span>)}
    </div>
   </section>
 
   <section className="landing-section landing-security" id="security">
-   <div className="landing-security-copy"><p className="eyebrow">SECURITY & GOVERNANCE</p><h2>Evidence you can trust, decisions you can defend</h2><p>Every part of the workflow is designed around one principle: the AI assists, and the Procurement Officer decides — with a full record behind every decision.</p></div>
+   <div className="landing-security-copy reveal-on-scroll"><p className="eyebrow">SECURITY & GOVERNANCE</p><h2>Evidence you can trust, decisions you can defend</h2><p>Every part of the workflow is designed around one principle: the AI assists, and the Procurement Officer decides — with a full record behind every decision.</p></div>
    <div className="landing-security-grid">
-    {security.map(s=><div className="landing-security-item" key={s[1]}><div className="landing-security-icon">{s[0]}</div><div><b>{s[1]}</b><p>{s[2]}</p></div></div>)}
+    {security.map((s,i)=><div className="landing-security-item reveal-on-scroll" style={{transitionDelay:(i%4)*100+'ms'}} key={s[1]}><div className="landing-security-icon">{s[0]}</div><div><b>{s[1]}</b><p>{s[2]}</p></div></div>)}
    </div>
   </section>
 
-  <section className="landing-final-cta" id="about">
+  <section className="landing-final-cta reveal-on-scroll" id="about">
    <h2>Ready to verify procurement compliance?</h2>
    <p>Sign in to your officer workspace and continue where your verifications left off.</p>
    <button className="primary" onClick={onLogin}>Enter Officer Workspace →</button>
   </section>
 
-  <footer className="landing-footer">
+  <footer className="landing-footer reveal-on-scroll">
    <div>
     <div className="landing-brand"><div className="logo">G</div><div><b>GeM Compliance AI</b><small>AI-powered procurement verification</small></div></div>
     <p>Authorized Procurement Personnel Only</p>
@@ -185,6 +218,7 @@ function App({onLogout}){
   document.addEventListener('keydown',onKey);
   return ()=>{document.removeEventListener('mousedown',onOutside);document.removeEventListener('keydown',onKey)};
  },[profileOpen]);
+ useScrollReveal([page]);
  return <div className={'app '+(collapsed?'collapsed':'')}>
   <aside className="sidebar"><div className="brand"><div className="logo">G</div>{!collapsed&&<div><b>GeM Compliance AI</b><small>AI-POWERED PROCUREMENT</small></div>}</div>
    <button className="collapse" onClick={()=>setCollapsed(!collapsed)}>{collapsed?'›':'‹'}</button>
@@ -226,9 +260,9 @@ function App({onLogout}){
 function Dashboard({onNew,onPage,shown}){const kpis=[['◈','12','Active Tenders','+2 this month'],['◷','28','Bids Under Verification','6 due today'],['◉','8','Pending Reviews','Action needed'],['⚠','4','High Risk Bidders','2 new this week'],['✓','146','Verified Bids','+12.5%'],['◌','18 min','Avg. Verification Time','4 min faster']];return <>
  <div className="hero"><div><p className="eyebrow">PROCUREMENT COMMAND CENTER</p><h1>Good morning, Procurement Officer</h1><p>Here’s your procurement compliance overview.</p></div><div><button className="secondary">⇩ Generate Report</button><button className="primary" onClick={onNew}>＋ New Verification</button></div></div>
  <div className="ai-notice"><span>✦</span><div><b>AI assists — Officer decides</b><p>All AI assessments are advisory. Final qualification and disqualification decisions remain with the Procurement Officer.</p></div><button>Learn more →</button></div>
- <div className="kpis">{kpis.map(x=><div className="kpi" key={x[2]}><div className="kpi-icon">{x[0]}</div><small>{x[2]}</small><strong>{x[1]}</strong><span className={x[3].includes('Action')?'warn':'trend'}>{x[3]}</span></div>)}</div>
- <div className="analytics"><div className="card chart"><div className="card-title"><div><h3>Compliance overview</h3><p>Verification outcomes across active tenders</p></div><button>Last 7 days⌄</button></div><div className="chart-body"><div className="donut"><div><b>186</b><small>Total bids</small></div></div><div className="legend"><p><i className="dot green"/> Compliant <b>146</b><span>78%</span></p><p><i className="dot amber"/> Needs review <b>28</b><span>15%</span></p><p><i className="dot red"/> Non-compliant <b>12</b><span>7%</span></p></div></div></div><div className="card activity"><div className="card-title"><div><h3>Verification activity</h3><p>Document processing & review trends</p></div><button>Weekly⌄</button></div><div className="line-chart"><div className="gridlines"/><svg viewBox="0 0 500 160" preserveAspectRatio="none"><polyline points="0,120 70,105 140,119 210,70 280,90 350,45 430,58 500,20" fill="none" stroke="#1976d2" strokeWidth="4"/><polyline points="0,145 70,135 140,140 210,115 280,130 350,95 430,110 500,78" fill="none" stroke="#14a28b" strokeWidth="3"/></svg><div className="axis"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div></div><div className="chart-key"><span><i className="dot blue"/>Documents verified</span><span><i className="dot teal"/>Issues detected</span></div></div></div>
- <div className="card table-card"><div className="card-title"><div><h3>Recent tender verification</h3><p>Track the latest verification activity</p></div><button onClick={()=>onPage('Tenders')}>View all →</button></div><table><thead><tr><th>TENDER ID</th><th>TENDER TITLE</th><th>TOTAL BIDS</th><th>VERIFIED</th><th>PENDING</th><th>HIGH RISK</th><th>STATUS</th><th/></tr></thead><tbody><tr><td className="link">GEM/2026/B/10234</td><td><b>Supply of IT Equipment</b><small>Central Public Sector Enterprise</small></td><td>8</td><td className="positive">6</td><td className="warning">2</td><td className="danger">1</td><td><Badge type="progress">In Progress</Badge></td><td><button className="view" onClick={()=>onPage('Bid Verification')}>View →</button></td></tr><tr><td className="link">GEM/2026/B/09821</td><td><b>Network Infrastructure</b><small>National Informatics Centre</small></td><td>12</td><td className="positive">12</td><td>0</td><td>0</td><td><Badge type="verified">Completed</Badge></td><td><button className="view">View →</button></td></tr></tbody></table></div>
+ <div className="kpis">{kpis.map((x,i)=><div className="kpi reveal-on-scroll" style={{transitionDelay:(i%6)*80+'ms'}} key={x[2]}><div className="kpi-icon">{x[0]}</div><small>{x[2]}</small><strong>{x[1]}</strong><span className={x[3].includes('Action')?'warn':'trend'}>{x[3]}</span></div>)}</div>
+ <div className="analytics"><div className="card chart reveal-on-scroll"><div className="card-title"><div><h3>Compliance overview</h3><p>Verification outcomes across active tenders</p></div><button>Last 7 days⌄</button></div><div className="chart-body"><div className="donut"><div><b>186</b><small>Total bids</small></div></div><div className="legend"><p><i className="dot green"/> Compliant <b>146</b><span>78%</span></p><p><i className="dot amber"/> Needs review <b>28</b><span>15%</span></p><p><i className="dot red"/> Non-compliant <b>12</b><span>7%</span></p></div></div></div><div className="card activity reveal-on-scroll" style={{transitionDelay:'100ms'}}><div className="card-title"><div><h3>Verification activity</h3><p>Document processing & review trends</p></div><button>Weekly⌄</button></div><div className="line-chart"><div className="gridlines"/><svg viewBox="0 0 500 160" preserveAspectRatio="none"><polyline points="0,120 70,105 140,119 210,70 280,90 350,45 430,58 500,20" fill="none" stroke="#1976d2" strokeWidth="4"/><polyline points="0,145 70,135 140,140 210,115 280,130 350,95 430,110 500,78" fill="none" stroke="#14a28b" strokeWidth="3"/></svg><div className="axis"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div></div><div className="chart-key"><span><i className="dot blue"/>Documents verified</span><span><i className="dot teal"/>Issues detected</span></div></div></div>
+ <div className="card table-card reveal-on-scroll"><div className="card-title"><div><h3>Recent tender verification</h3><p>Track the latest verification activity</p></div><button onClick={()=>onPage('Tenders')}>View all →</button></div><table><thead><tr><th>TENDER ID</th><th>TENDER TITLE</th><th>TOTAL BIDS</th><th>VERIFIED</th><th>PENDING</th><th>HIGH RISK</th><th>STATUS</th><th/></tr></thead><tbody><tr><td className="link">GEM/2026/B/10234</td><td><b>Supply of IT Equipment</b><small>Central Public Sector Enterprise</small></td><td>8</td><td className="positive">6</td><td className="warning">2</td><td className="danger">1</td><td><Badge type="progress">In Progress</Badge></td><td><button className="view" onClick={()=>onPage('Bid Verification')}>View →</button></td></tr><tr><td className="link">GEM/2026/B/09821</td><td><b>Network Infrastructure</b><small>National Informatics Centre</small></td><td>12</td><td className="positive">12</td><td>0</td><td>0</td><td><Badge type="verified">Completed</Badge></td><td><button className="view">View →</button></td></tr></tbody></table></div>
  </>}
 function Tenders({query,onView,onNew}){const tenders=[['GEM/2026/B/10234','Supply of IT Equipment','Central Public Sector Enterprise','8','6','2','26 Aug 2026','In Progress'],['GEM/2026/B/09821','Network Infrastructure Modernization','National Informatics Centre','12','12','0','21 Aug 2026','Completed'],['GEM/2026/B/09718','Cybersecurity Software Licenses','Ministry of Electronics & IT','6','3','3','29 Aug 2026','In Progress'],['GEM/2026/B/09456','Desktop Computers & Peripherals','Department of Revenue','10','0','10','02 Sep 2026','Pending'],['GEM/2026/B/09102','Data Centre Maintenance Services','Central Warehousing Corporation','5','5','0','18 Aug 2026','Completed']];const visible=tenders.filter(t=>t.slice(0,3).join(' ').toLowerCase().includes(query.toLowerCase()));return <><div className="hero"><div><p className="eyebrow">PROCUREMENT MANAGEMENT</p><h1>Active tenders</h1><p>Monitor tender verification activity, bidder submissions, and compliance progress.</p></div><button className="primary" onClick={onNew}>＋ New Verification</button></div><div className="tender-summary"><div><b>12</b><span>Active tenders</span></div><div><b>28</b><span>Bids under verification</span></div><div><b>8</b><span>Reviews pending</span></div></div><div className="card table-card"><div className="card-title"><div><h3>Tender register</h3><p>{visible.length} tenders shown · Search using the global search field</p></div><button className="secondary">Status: All ⌄</button></div><table><thead><tr><th>TENDER ID</th><th>TENDER TITLE</th><th>ORGANIZATION</th><th>BIDS</th><th>VERIFIED</th><th>PENDING</th><th>DEADLINE</th><th>STATUS</th><th/></tr></thead><tbody>{visible.map(t=><tr key={t[0]}><td className="link">{t[0]}</td><td><b>{t[1]}</b></td><td>{t[2]}</td><td>{t[3]}</td><td className="positive">{t[4]}</td><td className={t[5]==='0'?'':'warning'}>{t[5]}</td><td>{t[6]}</td><td><Badge type={t[7]==='Completed'?'verified':t[7]==='Pending'?'review':'progress'}>{t[7]}</Badge></td><td><button className="view" onClick={onView}>View →</button></td></tr>)}</tbody></table>{!visible.length&&<div className="filter-empty">No tenders match your search. <button onClick={()=>window.location.reload()}>Clear search</button></div>}</div></>}
 function Verification({selected,setSelected,expanded,setExpanded,onDecision,notify}){const bidder=bidders.find(x=>x.name===selected)||bidders[0];return <><div className="verify-head"><div><button className="back">← Back to verifications</button><h1>{bidder.name}</h1><p>Supply of IT Equipment <span>•</span> GEM/2026/B/10234</p></div><div><button className="secondary" onClick={()=>notify('Compliance report prepared')}>⇩ Export report</button><button className="primary" onClick={()=>onDecision('Approve / Qualify')}>Final review →</button></div></div><div className="assessment"><div className="score"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42"/><circle className="score-ring" cx="50" cy="50" r="42" style={{strokeDashoffset:264-(264*bidder.score/100)}}/></svg><div><b>{bidder.score}</b><span>/100</span><small>Compliance score</small></div></div><div className="assessment-copy"><p className="eyebrow">AI VERIFICATION COMPLETE</p><h2>{bidder.score>=85?'Strong compliance profile':'Review attention required'}</h2><p>Evidence has been analyzed against 12 tender-specific requirements.</p><div><Badge type={bidder.risk==='Low'?'verified':'review'}>{bidder.risk.toUpperCase()} RISK</Badge><Badge type="progress">{bidder.state}</Badge></div></div><div className="review-summary"><b>8 <small>Verified</small></b><b>2 <small>Needs review</small></b><b>2 <small>Not verified</small></b></div></div><div className="advisory">✦ <b>AI-generated assessment.</b> Final qualification/disqualification decision must be made by the Procurement Officer.</div>

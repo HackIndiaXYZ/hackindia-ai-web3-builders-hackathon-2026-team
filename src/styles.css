@@ -66,7 +66,7 @@
 }
 
 /* -- hero ---------------------------------------------------------------- */
-.landing-hero{background:radial-gradient(circle at 88% 0%,var(--surface-1676a5) 0,var(--surface-092e5b) 40%,var(--surface-051d3e) 100%);color:var(--white);display:grid;grid-template-columns:1.15fr .85fr;align-items:center;gap:40px;padding:76px 40px 90px;min-height:calc(100vh - 40px);}
+.landing-hero{background:radial-gradient(circle at 88% 0%,var(--surface-1676a5) 0,var(--surface-092e5b) 40%,var(--surface-051d3e) 100%);color:var(--white);display:grid;grid-template-columns:1.15fr .85fr;align-items:center;gap:40px;padding:76px 40px 90px;min-height:100vh}
 .landing-hero-copy{max-width:600px}
 .landing-hero .eyebrow{color:var(--text-6ed7db);margin-bottom:14px}
 .landing-hero h1{font:800 46px/1.14 Manrope;letter-spacing:-1px;margin:0 0 16px}
@@ -151,3 +151,27 @@
 .landing-footer-links a{color:var(--text-b6cae0);font-size:12px;text-decoration:none}
 .landing-footer-links a:hover{color:var(--white)}
 @media(max-width:600px){.landing-footer{flex-direction:column;padding:36px 20px}}
+
+/* ======================================================================
+   SCROLL REVEAL — reusable across the whole site.
+   Pair with the useScrollReveal() hook in index.js, which adds the
+   "revealed" class via IntersectionObserver the first time an element
+   with .reveal-on-scroll enters the viewport.
+   ====================================================================== */
+.reveal-on-scroll{
+ opacity:0;
+ transform:translateY(30px);
+ transition:opacity .7s ease-out, transform .7s ease-out;
+ will-change:opacity,transform;
+}
+.reveal-on-scroll.revealed{
+ opacity:1;
+ transform:translateY(0);
+}
+@media (prefers-reduced-motion: reduce){
+ .reveal-on-scroll{
+  opacity:1!important;
+  transform:none!important;
+  transition:none!important;
+ }
+}
