@@ -2,14 +2,19 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 async function request(path, options = {}) {
  const token = window.localStorage.getItem('gem_access_token');
- const response = await fetch(`${API_URL}${path}`, {
-  ...options,
-  headers: {
-   'Content-Type': 'application/json',
-   ...(token ? {Authorization: `Bearer ${token}`} : {}),
-   ...(options.headers || {})
-  }
- });
+ let response;
+ try {
+  response = await fetch(`${API_URL}${path}`, {
+   ...options,
+   headers: {
+    'Content-Type': 'application/json',
+    ...(token ? {Authorization: `Bearer ${token}`} : {}),
+    ...(options.headers || {})
+   }
+  });
+ } catch (error) {
+  throw new Error(`Backend unavailable at ${API_URL}. Start the FastAPI server and try again.`);
+ }
  if (!response.ok) {
   let message = `Request failed (${response.status})`;
   try { message = (await response.json()).detail || message; } catch (e) {}
