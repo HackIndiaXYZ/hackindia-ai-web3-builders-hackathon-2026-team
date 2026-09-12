@@ -82,7 +82,7 @@
 }
 
 /* -- hero ---------------------------------------------------------------- */
-.landing-hero{background:radial-gradient(circle at 88% 0%,var(--surface-1676a5) 0,var(--surface-092e5b) 40%,var(--surface-051d3e) 100%);color:var(--white);display:grid;grid-template-columns:1.15fr .85fr;align-items:center;gap:40px;padding:76px 40px 90px;min-height:560px}
+.landing-hero{background:radial-gradient(circle at 88% 0%,var(--surface-1676a5) 0,var(--surface-092e5b) 40%,var(--surface-051d3e) 100%);color:var(--white);display:grid;grid-template-columns:1.15fr .85fr;align-items:center;gap:40px;padding:76px 40px 90px;min-height:100vh}
 .landing-hero-copy{max-width:600px}
 .landing-hero .eyebrow{color:var(--text-6ed7db);margin-bottom:14px}
 .landing-hero h1{font:800 46px/1.14 Manrope;letter-spacing:-1px;margin:0 0 16px}
@@ -392,3 +392,18 @@
 .settings-range{-webkit-appearance:none;appearance:none;width:150px;height:4px;border-radius:2px;background:var(--border-d9e1eb);accent-color:var(--blue)}
 .settings-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:var(--blue);cursor:pointer;box-shadow:0 1px 3px var(--shadow-09234a20)}
 .settings-range::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--blue);border:0;cursor:pointer}
+
+/* ======================================================================
+   AUDIT TRAIL — normalize table elevation only on the Audit Trail page.
+   Add class="audit-trail-page" to the Audit Trail page wrapper.
+   ====================================================================== */
+/* Audit Trail: disable card hover movement */
+.audit-trail-page .table-card {
+  transform: none;
+  box-shadow: none;
+}
+
+.audit-trail-page .table-card:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}

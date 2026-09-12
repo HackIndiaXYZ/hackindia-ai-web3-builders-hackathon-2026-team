@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 import './styles.css';
 
 const bidders=[
- {name:'ABC Technologies Pvt. Ltd.',score:94,risk:'Low',issue:'Fully verified',state:'Verified'},
+ {name:'Asteron Thermal Systems Pvt. Ltd.',score:94,risk:'Low',issue:'Fully verified',state:'Verified'},
  {name:'Bharat Digital Systems',score:86,risk:'Medium',issue:'OEM authorization review',state:'Needs Review'},
  {name:'Nova Infotech Pvt. Ltd.',score:72,risk:'Medium',issue:'Turnover discrepancy',state:'Needs Review'},
  {name:'Vertex Solutions',score:61,risk:'High',issue:'Missing statutory documents',state:'Review'},
@@ -468,7 +468,54 @@ function IntegrationConfigModal({integration,onClose,onSave,onTestSuccess}){
  </div>
 }
 function Reports({notify}){return <><div className="hero"><div><p className="eyebrow">AUDITABLE OUTPUTS</p><h1>Reports</h1><p>Generate procurement-ready compliance and risk reports.</p></div></div><div className="report-grid">{['Bid Compliance Report','Tender Compliance Summary','Risk Assessment Report','Audit Report','Government Verification Report'].map(x=><div className="card report" key={x}><div>▧</div><h3>{x}</h3><p>Exported with tender-specific evidence and officer review trail.</p><button className="primary" onClick={()=>notify(x+' generated')}>Generate Report</button></div>)}</div></>}
-function Audit(){return <><div className="hero"><div><p className="eyebrow">EVIDENCE TRACEABILITY</p><h1>Audit trail</h1><p>Every verification and officer action in one immutable review log.</p></div><button className="secondary">⇩ Export logs</button></div><div className="card table-card"><table><thead><tr><th>TIMESTAMP</th><th>USER</th><th>TENDER</th><th>BIDDER</th><th>ACTION</th><th>RESULT</th></tr></thead><tbody>{[['10:21 AM','Procurement Officer','GEM/2026/B/10234','ABC Technologies','GST Verification','Completed'],['10:24 AM','AI Verification Engine','GEM/2026/B/10234','ABC Technologies','OEM Authorization','Issue detected'],['10:31 AM','Procurement Officer','GEM/2026/B/10234','ABC Technologies','Compliance reviewed','Recorded']].map(r=><tr key={r[0]}>{r.map((x,i)=><td key={i}>{i===5?<Badge type={x==='Completed'?'verified':'review'}>{x}</Badge>:x}</td>)}</tr>)}</tbody></table></div></>}
+function Audit(){
+  return (
+    <div className="audit-trail-page">
+      <div className="hero">
+        <div>
+          <p className="eyebrow">EVIDENCE TRACEABILITY</p>
+          <h1>Audit trail</h1>
+          <p>Every verification and officer action in one immutable review log.</p>
+        </div>
+        <button className="secondary">⇩ Export logs</button>
+      </div>
+
+      <div className="card table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Action</th>
+              <th>Officer</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr>
+              <td>Today, 10:42 AM</td>
+              <td>Bid compliance verification completed</td>
+              <td>Procurement Officer</td>
+              <td><span className="status success">Completed</span></td>
+            </tr>
+            <tr>
+              <td>Today, 10:18 AM</td>
+              <td>Bid documents uploaded</td>
+              <td>Procurement Officer</td>
+              <td><span className="status success">Completed</span></td>
+            </tr>
+            <tr>
+              <td>Today, 09:55 AM</td>
+              <td>GST verification initiated</td>
+              <td>System</td>
+              <td><span className="status success">Verified</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 function Placeholder({title}){return <div className="empty"><div>◈</div><h1>{title}</h1><p>This working prototype is ready to be configured for your procurement process.</p></div>}
 
 /* ---------------------------------------------------------------------- */
