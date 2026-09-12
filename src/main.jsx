@@ -3,13 +3,13 @@ import {createRoot} from 'react-dom/client';
 import './styles.css';
 
 const bidders=[
- {name:'Asteron Thermal Systems Pvt. Ltd.',score:94,risk:'Low',issue:'Fully verified',state:'Verified'},
+ {name:'Asteron Thermal Pvt. Ltd.',score:94,risk:'Low',issue:'Fully verified',state:'Verified'},
  {name:'Bharat Digital Systems',score:86,risk:'Medium',issue:'OEM authorization review',state:'Needs Review'},
  {name:'Nova Infotech Pvt. Ltd.',score:72,risk:'Medium',issue:'Turnover discrepancy',state:'Needs Review'},
  {name:'Vertex Solutions',score:61,risk:'High',issue:'Missing statutory documents',state:'Review'},
  {name:'SecureTech India',score:48,risk:'High',issue:'Multiple compliance issues',state:'Review'}
 ];
-const nav=['Dashboard','Tenders','Compliance Analysis','Risk Center','Reports','Audit Trail','Integrations','Settings'];
+const nav=['Dashboard','Tenders','Compliance Analysis','Risk Center','Audit Trail','Integrations','Settings'];
 const icons=['▦','◇','▤','◉','▱','◷','⌁','⚙'];
 const requirements=[
  ['GST Registration','verified','GSTIN 09ABCDE1234F1Z5','Active registration · Last verified 2 min ago'],
