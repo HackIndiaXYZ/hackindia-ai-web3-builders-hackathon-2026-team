@@ -9,8 +9,8 @@ const bidders=[
  {name:'Vertex Solutions',score:61,risk:'High',issue:'Missing statutory documents',state:'Review'},
  {name:'SecureTech India',score:48,risk:'High',issue:'Multiple compliance issues',state:'Review'}
 ];
-const nav=['Dashboard','Tenders','Bid Verification','Compliance Analysis','Risk Center','Reports','Audit Trail','Integrations','Settings'];
-const icons=['▦','◇','✓','▤','◉','▱','◷','⌁','⚙'];
+const nav=['Dashboard','Tenders','Compliance Analysis','Risk Center','Reports','Audit Trail','Integrations','Settings'];
+const icons=['▦','◇','▤','◉','▱','◷','⌁','⚙'];
 const requirements=[
  ['GST Registration','verified','GSTIN 09ABCDE1234F1Z5','Active registration · Last verified 2 min ago'],
  ['Udyam Registration','verified','UDYAM-UP-09-0023412','Micro enterprise · ABC Technologies Pvt. Ltd.'],
@@ -25,6 +25,62 @@ function Badge({children,type}){return <span className={'badge '+(type||'')}>{ch
 /* Lightweight History-API router — no external dependency required.      */
 /* Handles: initial URL, browser back/forward, and programmatic navigate. */
 /* ---------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------- */
+/* PERSISTENT STATE                                                        */
+/* Small localStorage-backed useState — used throughout Settings so every  */
+/* section persists across refreshes without duplicating read/write code. */
+/* ---------------------------------------------------------------------- */
+function usePersistentState(key,initial){
+ const [value,setValue]=useState(()=>{
+  try{
+   const raw=window.localStorage.getItem(key);
+   if(raw!==null)return JSON.parse(raw);
+  }catch(e){}
+  return typeof initial==='function'?initial():initial;
+ });
+ useEffect(()=>{
+  try{window.localStorage.setItem(key,JSON.stringify(value))}catch(e){}
+ },[key,value]);
+ return [value,setValue];
+}
+
+/* ---------------------------------------------------------------------- */
+/* NOTIFICATION SOUND                                                      */
+/* Short, synthesized two-tone chime via WebAudio — no external audio file */
+/* needed. The AudioContext is created lazily and only after a genuine     */
+/* user gesture (see unlockAudio), so browsers never block/complain about  */
+/* autoplay. Every call is wrapped so a blocked/unsupported audio system   */
+/* can never break the app — the visual notification still shows either way*/
+/* ---------------------------------------------------------------------- */
+let audioCtx=null;
+function unlockAudio(){
+ try{
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)return;
+  if(!audioCtx)audioCtx=new AC();
+  else if(audioCtx.state==='suspended')audioCtx.resume();
+ }catch(e){/* ignore — sound is optional */}
+}
+function playNotificationSound(volume=0.5){
+ try{
+  if(!audioCtx)return;
+  if(audioCtx.state==='suspended')audioCtx.resume();
+  const now=audioCtx.currentTime;
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc.type='sine';
+  osc.frequency.setValueAtTime(880,now);
+  osc.frequency.exponentialRampToValueAtTime(659,now+0.14);
+  const peak=Math.max(0.0001,Math.min(1,volume)*0.32);
+  gain.gain.setValueAtTime(0.0001,now);
+  gain.gain.linearRampToValueAtTime(peak,now+0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001,now+0.32);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now+0.34);
+ }catch(e){/* ignore — never let audio break the app */}
+}
+
 function useRoute(){
  const [path,setPathState]=useState(window.location.pathname);
  useEffect(()=>{
@@ -75,6 +131,34 @@ function AppRouter(){
  const [authenticated,setAuthenticated]=useState(false);
  const [path,navigate]=useRoute();
 
+ // Appearance is app-wide (per the Settings > Appearance section), so it
+ // lives here — above Landing/Login/App — and is applied to <html> itself.
+ const [theme,setTheme]=usePersistentState('gem_theme','light');
+ const [density,setDensity]=usePersistentState('gem_density','comfortable');
+ const [animations,setAnimations]=usePersistentState('gem_animations',true);
+ const [accent,setAccent]=usePersistentState('gem_accent','blue');
+ const [sidebarCollapsed,setSidebarCollapsed]=usePersistentState('gem_sidebar_collapsed',false);
+ const [notifPrefs,setNotifPrefs]=usePersistentState('gem_notifications',()=>({...Object.fromEntries(notificationConfig.map(([key])=>[key,true])),inApp:true,email:true,soundEnabled:true,soundVolume:0.5}));
+
+ useEffect(()=>{
+  const root=document.documentElement;
+  const applyTheme=()=>{
+   const effective=theme==='system'?(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):theme;
+   root.setAttribute('data-theme',effective);
+  };
+  applyTheme();
+  if(theme==='system'&&window.matchMedia){
+   const mq=window.matchMedia('(prefers-color-scheme: dark)');
+   mq.addEventListener('change',applyTheme);
+   return ()=>mq.removeEventListener('change',applyTheme);
+  }
+ },[theme]);
+ useEffect(()=>{document.documentElement.setAttribute('data-density',density)},[density]);
+ useEffect(()=>{document.documentElement.setAttribute('data-motion',animations?'on':'off')},[animations]);
+ useEffect(()=>{document.documentElement.setAttribute('data-accent',accent)},[accent]);
+
+ const appearance={theme,setTheme,density,setDensity,animations,setAnimations,accent,setAccent,sidebarCollapsed,setSidebarCollapsed};
+
  const login=()=>{setAuthenticated(true);navigate('/dashboard')};
  const logout=()=>{setAuthenticated(false);navigate('/')};
 
@@ -93,7 +177,7 @@ function AppRouter(){
  },[view,path]);
 
  if(view==='login')return <Login onSignIn={login}/>;
- if(view==='app')return <App onLogout={logout}/>;
+ if(view==='app')return <App onLogout={logout} appearance={appearance} notifPrefs={notifPrefs} setNotifPrefs={setNotifPrefs}/>;
  return <Landing onLogin={()=>navigate('/login')}/>;
 }
 
@@ -203,8 +287,9 @@ function Login({onSignIn}){
 /* ---------------------------------------------------------------------- */
 /* AUTHENTICATED WORKSPACE (unchanged aside from onLogout wiring)         */
 /* ---------------------------------------------------------------------- */
-function App({onLogout}){
- const [page,setPage]=useState('Dashboard'),[collapsed,setCollapsed]=useState(false),[showWorkflow,setWorkflow]=useState(false),[step,setStep]=useState(1),[query,setQuery]=useState(''),[selected,setSelected]=useState('ABC Technologies Pvt. Ltd.'),[expanded,setExpanded]=useState(null),[decision,setDecision]=useState(null),[remark,setRemark]=useState(''),[toast,setToast]=useState(''),[profileOpen,setProfileOpen]=useState(false);
+function App({onLogout,appearance,notifPrefs,setNotifPrefs}){
+ const {sidebarCollapsed:collapsed,setSidebarCollapsed:setCollapsed}=appearance;
+ const [page,setPage]=useState('Dashboard'),[showWorkflow,setWorkflow]=useState(false),[step,setStep]=useState(1),[query,setQuery]=useState(''),[selected,setSelected]=useState('ABC Technologies Pvt. Ltd.'),[expanded,setExpanded]=useState(null),[decision,setDecision]=useState(null),[remark,setRemark]=useState(''),[toast,setToast]=useState(''),[profileOpen,setProfileOpen]=useState(false);
  const notify=m=>{setToast(m);setTimeout(()=>setToast(''),2600)};
  const [selectedTender,setSelectedTender]=useState(null);
  const shown=bidders.filter(b=>b.name.toLowerCase().includes(query.toLowerCase()));
@@ -218,6 +303,41 @@ function App({onLogout}){
   document.addEventListener('keydown',onKey);
   return ()=>{document.removeEventListener('mousedown',onOutside);document.removeEventListener('keydown',onKey)};
  },[profileOpen]);
+
+ // Notification center: seeded with a few pre-existing items (no sound for
+ // these — they were already present at load), plus a bell dropdown.
+ const [notifications,setNotifications]=useState(()=>[
+  {id:'seed-1',title:'Bid verification completed',message:'Bharat Digital Systems — OEM authorization review',time:'2 hours ago',read:true},
+  {id:'seed-2',title:'High-risk bidder detected',message:'SecureTech India flagged for multiple compliance issues',time:'5 hours ago',read:false},
+  {id:'seed-3',title:'Tender deadline approaching',message:'GEM/2026/B/10234 closes in 2 days',time:'Yesterday',read:false}
+ ]);
+ const [notifOpen,setNotifOpen]=useState(false);
+ const [bellPulse,setBellPulse]=useState(false);
+ const notifRef=useRef(null);
+ const unreadCount=notifications.filter(n=>!n.read).length;
+ const addNotification=(title,message)=>{
+  const id='ntf-'+Date.now()+'-'+Math.random().toString(36).slice(2,7);
+  setNotifications(prev=>[{id,title,message,time:'Just now',read:false},...prev]);
+  setBellPulse(true);
+  setTimeout(()=>setBellPulse(false),900);
+  if(notifPrefs.soundEnabled)playNotificationSound(notifPrefs.soundVolume);
+ };
+ const markAllRead=()=>setNotifications(prev=>prev.map(n=>({...n,read:true})));
+ useEffect(()=>{
+  if(!notifOpen)return;
+  const onOutside=e=>{if(notifRef.current&&!notifRef.current.contains(e.target))setNotifOpen(false)};
+  const onKey=e=>{if(e.key==='Escape')setNotifOpen(false)};
+  document.addEventListener('mousedown',onOutside);
+  document.addEventListener('keydown',onKey);
+  return ()=>{document.removeEventListener('mousedown',onOutside);document.removeEventListener('keydown',onKey)};
+ },[notifOpen]);
+ // Unlock audio on the very first user interaction anywhere in the
+ // dashboard — never attempt to play sound before this has happened.
+ useEffect(()=>{
+  const onFirstInteract=()=>{unlockAudio();document.removeEventListener('pointerdown',onFirstInteract)};
+  document.addEventListener('pointerdown',onFirstInteract);
+  return ()=>document.removeEventListener('pointerdown',onFirstInteract);
+ },[]);
  useScrollReveal([page]);
  return <div className={'app '+(collapsed?'collapsed':'')}>
   <aside className="sidebar"><div className="brand"><div className="logo">G</div>{!collapsed&&<div><b>GeM Compliance AI</b><small>AI-POWERED PROCUREMENT</small></div>}</div>
@@ -225,6 +345,14 @@ function App({onLogout}){
    <nav>{nav.map((n,i)=><button key={n} className={page===n?'active':''} onClick={()=>selectPage(n)}><i>{icons[i]}</i>{!collapsed&&n}</button>)}</nav>
    <div className="officer"><div className="avatar">PO</div>{!collapsed&&<div><b>Procurement Officer</b><small><em/> Online</small></div>}</div></aside>
   <main><header><div className="crumb">{page}</div><div className="header-actions"><div className="search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search tender, bidder, GSTIN..."/></div>
+   <div className="notif-wrap" ref={notifRef}><button className={'icon-btn '+(bellPulse?'pulse':'')} onClick={()=>{setNotifOpen(!notifOpen)}} aria-haspopup="true" aria-expanded={notifOpen} aria-label="Notifications">♧{unreadCount>0&&<sup>{unreadCount}</sup>}</button>
+    {notifOpen&&<div className="notif-menu" role="menu">
+     <div className="notif-menu-head"><b>Notifications</b>{unreadCount>0&&<button className="notif-mark-read" onClick={markAllRead}>Mark all read</button>}</div>
+     <div className="notif-list">
+      {notifications.length?notifications.map(n=><div className={'notif-item '+(n.read?'':'unread')} key={n.id}><b>{n.title}</b><p>{n.message}</p><small>{n.time}</small></div>):<div className="notif-empty">No notifications yet.</div>}
+     </div>
+    </div>}
+   </div>
    <div className="profile-wrap" ref={profileRef}><button className="profile" onClick={()=>setProfileOpen(!profileOpen)} aria-haspopup="true" aria-expanded={profileOpen}><div className="avatar">PO</div><span>Procurement Officer</span><b className={profileOpen?'flip':''}>⌄</b></button>
     {profileOpen&&<div className="profile-menu" role="menu">
      <div className="profile-menu-head"><div className="avatar">PO</div><div><b>Procurement Officer</b><small>Authorized Officer</small></div></div>
@@ -247,11 +375,12 @@ function App({onLogout}){
     {page==='Integrations'&&<Integrations notify={notify}/>}
     {page==='Reports'&&<Reports notify={notify}/>}
     {page==='Audit Trail'&&<Audit/>}
-    {!['Dashboard','Tenders','Tender Details','Bid Verification','Risk Center','Integrations','Reports','Audit Trail'].includes(page)&&<Placeholder title={page}/>} 
+    {page==='Settings'&&<Settings notify={notify} appearance={appearance} notifPrefs={notifPrefs} setNotifPrefs={setNotifPrefs}/>}
+    {!['Dashboard','Tenders','Tender Details','Bid Verification','Risk Center','Integrations','Reports','Audit Trail','Settings'].includes(page)&&<Placeholder title={page}/>} 
    </section>
   </main>
-  {showWorkflow&&<Workflow step={step} setStep={setStep} close={()=>setWorkflow(false)} notify={notify}/>} 
-  {decision&&<Decision type={decision} remark={remark} setRemark={setRemark} close={()=>setDecision(null)} notify={notify}/>} 
+  {showWorkflow&&<Workflow step={step} setStep={setStep} close={()=>setWorkflow(false)} notify={notify} onLogged={()=>addNotification('Verification completed','AI verification finished for '+selected+'.')}/>} 
+  {decision&&<Decision type={decision} remark={remark} setRemark={setRemark} close={()=>setDecision(null)} notify={notify} onLogged={()=>addNotification('Decision recorded',decision+' — '+selected)}/>} 
   <HelpChat />
   <WhyDetails />
   {toast&&<div className="toast">✓ {toast}</div>}
@@ -264,9 +393,9 @@ function Dashboard({onNew,onPage,shown}){const kpis=[['◈','12','Active Tenders
  <div className="card table-card reveal-on-scroll"><div className="card-title"><div><h3>Recent tender verification</h3><p>Track the latest verification activity</p></div><button onClick={()=>onPage('Tenders')}>View all →</button></div><table><thead><tr><th>TENDER ID</th><th>TENDER TITLE</th><th>TOTAL BIDS</th><th>VERIFIED</th><th>PENDING</th><th>HIGH RISK</th><th>STATUS</th><th/></tr></thead><tbody><tr><td className="link">GEM/2026/B/10234</td><td><b>Supply of IT Equipment</b><small>Central Public Sector Enterprise</small></td><td>8</td><td className="positive">6</td><td className="warning">2</td><td className="danger">1</td><td><Badge type="progress">In Progress</Badge></td><td><button className="view" onClick={()=>onPage('Bid Verification')}>View →</button></td></tr><tr><td className="link">GEM/2026/B/09821</td><td><b>Network Infrastructure</b><small>National Informatics Centre</small></td><td>12</td><td className="positive">12</td><td>0</td><td>0</td><td><Badge type="verified">Completed</Badge></td><td><button className="view">View →</button></td></tr></tbody></table></div>
  </>}
 function Tenders({query,onView,onNew}){const tenders=[['GEM/2026/B/10234','Supply of IT Equipment','Central Public Sector Enterprise','8','6','2','26 Aug 2026','In Progress'],['GEM/2026/B/09821','Network Infrastructure Modernization','National Informatics Centre','12','12','0','21 Aug 2026','Completed'],['GEM/2026/B/09718','Cybersecurity Software Licenses','Ministry of Electronics & IT','6','3','3','29 Aug 2026','In Progress'],['GEM/2026/B/09456','Desktop Computers & Peripherals','Department of Revenue','10','0','10','02 Sep 2026','Pending'],['GEM/2026/B/09102','Data Centre Maintenance Services','Central Warehousing Corporation','5','5','0','18 Aug 2026','Completed']];const visible=tenders.filter(t=>t.slice(0,3).join(' ').toLowerCase().includes(query.toLowerCase()));return <><div className="hero"><div><p className="eyebrow">PROCUREMENT MANAGEMENT</p><h1>Active tenders</h1><p>Monitor tender verification activity, bidder submissions, and compliance progress.</p></div></div><div className="tender-summary"><div><b>12</b><span>Active tenders</span></div><div><b>28</b><span>Bids under verification</span></div><div><b>8</b><span>Reviews pending</span></div></div><div className="card table-card"><div className="card-title"><div><h3>Tender register</h3><p>{visible.length} tenders shown · Search using the global search field</p></div><button className="secondary">Status: All ⌄</button></div><table><thead><tr><th>TENDER ID</th><th>TENDER TITLE</th><th>ORGANIZATION</th><th>BIDS</th><th>VERIFIED</th><th>PENDING</th><th>DEADLINE</th><th>STATUS</th><th/></tr></thead><tbody>{visible.map(t=><tr key={t[0]}><td className="link">{t[0]}</td><td><b>{t[1]}</b></td><td>{t[2]}</td><td>{t[3]}</td><td className="positive">{t[4]}</td><td className={t[5]==='0'?'':'warning'}>{t[5]}</td><td>{t[6]}</td><td><Badge type={t[7]==='Completed'?'verified':t[7]==='Pending'?'review':'progress'}>{t[7]}</Badge></td><td><button className="view" onClick={onView}>View →</button></td></tr>)}</tbody></table>{!visible.length&&<div className="filter-empty">No tenders match your search. <button onClick={()=>window.location.reload()}>Clear search</button></div>}</div></>}
-function Verification({selected,setSelected,expanded,setExpanded,onDecision,notify}){const bidder=bidders.find(x=>x.name===selected)||bidders[0];return <><div className="verify-head"><div><button className="back">← Back to verifications</button><h1>{bidder.name}</h1><p>Supply of IT Equipment <span>•</span> GEM/2026/B/10234</p></div><div><button className="secondary" onClick={()=>notify('Compliance report prepared')}>⇩ Export report</button><button className="primary" onClick={()=>onDecision('Approve / Qualify')}>Final review →</button></div></div><div className="assessment"><div className="score"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42"/><circle className="score-ring" cx="50" cy="50" r="42" style={{strokeDashoffset:264-(264*bidder.score/100)}}/></svg><div><b>{bidder.score}</b><span>/100</span><small>Compliance score</small></div></div><div className="assessment-copy"><p className="eyebrow">AI VERIFICATION COMPLETE</p><h2>{bidder.score>=85?'Strong compliance profile':'Review attention required'}</h2><p>Evidence has been analyzed against 12 tender-specific requirements.</p><div><Badge type={bidder.risk==='Low'?'verified':'review'}>{bidder.risk.toUpperCase()} RISK</Badge><Badge type="progress">{bidder.state}</Badge></div></div><div className="review-summary"><b>8 <small>Verified</small></b><b>2 <small>Needs review</small></b><b>2 <small>Not verified</small></b></div></div><div className="advisory">✦ <b>AI-generated assessment.</b> Final qualification/disqualification decision must be made by the Procurement Officer.</div>
+function Verification({selected,setSelected,expanded,setExpanded,onDecision,notify}){const bidder=bidders.find(x=>x.name===selected)||bidders[0];return <><div className="verify-head"><div><button className="back">← Back to verifications</button><h1>{bidder.name}</h1><p>Supply of IT Equipment <span>•</span> GEM/2026/B/10234</p></div><div><button className="secondary" onClick={()=>notify('Compliance report prepared')}>⇩ Export report</button><button className="primary" onClick={()=>onDecision('Approve / Qualify')}>Final review →</button></div></div><div className="assessment"><div className="compliance-score"><div className="score-ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42"/><circle className="score-ring-fill" cx="50" cy="50" r="42" style={{strokeDashoffset:264-(264*bidder.score/100)}}/></svg><div className="score-value"><span className="score-number">{bidder.score}</span><span className="score-total">/100</span></div></div><div className="score-label">Compliance score</div></div><div className="assessment-copy"><p className="eyebrow">AI VERIFICATION COMPLETE</p><h2>{bidder.score>=85?'Strong compliance profile':'Review attention required'}</h2><p>Evidence has been analyzed against 12 tender-specific requirements.</p><div><Badge type={bidder.risk==='Low'?'verified':'review'}>{bidder.risk.toUpperCase()} RISK</Badge><Badge type="progress">{bidder.state}</Badge></div></div><div className="review-summary"><b>8 <small>Verified</small></b><b>2 <small>Needs review</small></b><b>2 <small>Not verified</small></b></div></div><div className="advisory">✦ <b>AI-generated assessment.</b> Final qualification/disqualification decision must be made by the Procurement Officer.</div>
 <div className="split"><div><div className="section-title"><div><h2>Compliance requirements</h2><p>Evidence-based AI assessment for this bidder</p></div><button className="secondary">Filter: All⌄</button></div>{requirements.map((r,i)=><div className={'requirement '+(expanded===i?'open':'')} key={r[0]}><button className="req-top" onClick={()=>setExpanded(expanded===i?null:i)}><span className={'status-icon '+r[1]}>{r[1]==='verified'?'✓':r[1]==='review'?'!':'×'}</span><div><b>{r[0]}</b><small>{r[1]==='verified'?'VERIFIED':r[1]==='review'?'NEEDS REVIEW':'NOT VERIFIED'}</small></div><span className="chev">⌄</span></button>{expanded===i&&<div className="req-details"><div><small>{r[2]}</small><b>{r[3]}</b></div><p>{r[1]==='review'?'Submitted financial documents indicate turnover below the tender threshold. Officer review is required.':r[1]==='failed'?'Required document was not found or could not be verified. Request clarification or verify manually.':'Source verified through document extraction and cross-document matching.'}</p><div><button className="secondary" onClick={()=>notify('Evidence viewer opened for '+r[0])}>View evidence</button><button className="text-btn" onClick={()=>notify('Auditable reasoning summary opened')}>✦ Why?</button></div></div>}</div>)}</div><aside className="right-panel"><h3>Verification details</h3><div className="detail"><small>Verification ID</small><b>VRF-2026-08492</b></div><div className="detail"><small>Processed on</small><b>23 Aug 2026, 10:42 AM</b></div><div className="detail"><small>Documents analyzed</small><b>7 documents</b></div><hr/><h3>Consistency check</h3><p className="inconsistency">⚠ Potential mismatch requiring officer review.</p><div className="match"><span>Company name</span><Badge type="review">Variation</Badge></div><div className="match"><span>PAN</span><Badge type="verified">Match</Badge></div><div className="match"><span>GSTIN</span><Badge type="verified">Match</Badge></div><button className="full secondary" onClick={()=>notify('Consistency report opened')}>View consistency report</button></aside></div></>}
-function Workflow({step,setStep,close,notify}){const steps=['Tender details','Tender document','Bidder documents','AI verification']; const complete=step===4;return <div className="modal-bg"><div className="workflow"><button className="close" onClick={close}>×</button><p className="eyebrow">NEW VERIFICATION</p><h2>{complete?'AI verification in progress':'Create a tender verification'}</h2><div className="steps">{steps.map((s,i)=><span key={s} className={step===i+1?'current':step>i+1?'done':''}><i>{step>i+1?'✓':i+1}</i>{s}</span>)}</div>{step===1&&<div className="form"><label>Tender ID<input defaultValue="GEM/2026/B/10234"/></label><label>Tender title<input defaultValue="Supply of IT Equipment"/></label><label>Department / organization<select><option>Central Public Sector Enterprise</option></select></label><label>Tender category<select><option>IT & Electronics</option></select></label></div>}{step===2&&<Upload title="Upload Tender Document" text="Drop a PDF or DOCX to extract tender requirements." file="IT_Equipment_Tender.pdf"/>}{step===3&&<Upload title="Upload Bid Documents" text="Upload documents received from GeM for verification." file="GST_Certificate.pdf  ·  Udyam_Certificate.pdf  ·  PAN.pdf"/>}{step===4&&<div className="processing"><div className="loader">✦</div><h3>Analyzing tender & bidder documents</h3><p>88% complete · This takes a moment</p>{['Document extraction','Tender requirement extraction','GST verification','Udyam verification','PAN verification','Cross-document consistency check','Risk assessment','Compliance report'].map((x,i)=><div className={'process '+(i<5?'done':i===5?'active':'')} key={x}><span>{i<5?'✓':i===5?'◉':'○'}</span>{x}<small>{i<5?'Complete':i===5?'In progress':''}</small></div>)}</div>}<div className="modal-footer"><button className="secondary" onClick={step===1?close:()=>setStep(step-1)}>Back</button><button className="primary" onClick={()=>complete?(close(),notify('Verification completed — report is ready')):setStep(step+1)}>{complete?'View compliance report':'Continue →'}</button></div></div></div>}
+function Workflow({step,setStep,close,notify,onLogged}){const steps=['Tender details','Tender document','Bidder documents','AI verification']; const complete=step===4;return <div className="modal-bg"><div className="workflow"><button className="close" onClick={close}>×</button><p className="eyebrow">NEW VERIFICATION</p><h2>{complete?'AI verification in progress':'Create a tender verification'}</h2><div className="steps">{steps.map((s,i)=><span key={s} className={step===i+1?'current':step>i+1?'done':''}><i>{step>i+1?'✓':i+1}</i>{s}</span>)}</div>{step===1&&<div className="form"><label>Tender ID<input defaultValue="GEM/2026/B/10234"/></label><label>Tender title<input defaultValue="Supply of IT Equipment"/></label><label>Department / organization<select><option>Central Public Sector Enterprise</option></select></label><label>Tender category<select><option>IT & Electronics</option></select></label></div>}{step===2&&<Upload title="Upload Tender Document" text="Drop a PDF or DOCX to extract tender requirements." file="IT_Equipment_Tender.pdf"/>}{step===3&&<Upload title="Upload Bid Documents" text="Upload documents received from GeM for verification." file="GST_Certificate.pdf  ·  Udyam_Certificate.pdf  ·  PAN.pdf"/>}{step===4&&<div className="processing"><div className="loader">✦</div><h3>Analyzing tender & bidder documents</h3><p>88% complete · This takes a moment</p>{['Document extraction','Tender requirement extraction','GST verification','Udyam verification','PAN verification','Cross-document consistency check','Risk assessment','Compliance report'].map((x,i)=><div className={'process '+(i<5?'done':i===5?'active':'')} key={x}><span>{i<5?'✓':i===5?'◉':'○'}</span>{x}<small>{i<5?'Complete':i===5?'In progress':''}</small></div>)}</div>}<div className="modal-footer"><button className="secondary" onClick={step===1?close:()=>setStep(step-1)}>Back</button><button className="primary" onClick={()=>{if(complete){close();notify('Verification completed — report is ready');onLogged&&onLogged()}else setStep(step+1)}}>{complete?'View compliance report':'Continue →'}</button></div></div></div>}
 function Upload({title,text,file}){return <div className="upload"><div className="upload-icon">⇧</div><h3>{title}</h3><p>{text}</p><button className="secondary">Choose files</button><div className="uploaded">✓ <b>{file}</b><span>AI extraction ready</span></div></div>}
 function Decision({type,remark,setRemark,close,notify}){return <div className="modal-bg"><div className="decision"><button className="close" onClick={close}>×</button><p className="eyebrow">FINAL PROCUREMENT REVIEW</p><h2>{type} bidder?</h2><div className="advisory">⚠ <b>AI recommendations are advisory only.</b> The Procurement Officer is solely responsible for the final procurement decision.</div><p>I have reviewed the available evidence and am making this decision based on my assessment.</p><label>Officer remarks <textarea value={remark} onChange={e=>setRemark(e.target.value)} placeholder="Add mandatory decision remarks..."/></label><div className="modal-footer"><button className="secondary" onClick={close}>Cancel</button><button className="primary" disabled={!remark} onClick={()=>{close();notify(type+' recorded in audit trail')}}>Confirm decision</button></div></div></div>}
 function Risk({shown,onReview}){return <><div className="hero"><div><p className="eyebrow">RISK INTELLIGENCE</p><h1>Bidder risk center</h1><p>Prioritize evidence-based review across active tenders.</p></div></div><div className="risk-stats"><div><b>4</b><span>High risk bidders</span></div><div><b>11</b><span>Medium risk bidders</span></div><div><b>13</b><span>Low risk bidders</span></div></div><div className="card table-card"><div className="card-title"><div><h3>Risk queue</h3><p>Sorted by potential impact</p></div><button className="secondary">Filter risk⌄</button></div><table><thead><tr><th>BIDDER</th><th>TENDER</th><th>SCORE</th><th>RISK</th><th>MAIN ISSUE</th><th>ACTION</th></tr></thead><tbody>{shown.map(b=><tr key={b.name}><td><b>{b.name}</b></td><td className="link">GEM/2026/B/10234</td><td><b>{b.score}/100</b></td><td><Badge type={b.risk.toLowerCase()}>{b.risk}</Badge></td><td>{b.issue}</td><td><button className="view" onClick={()=>onReview(b)}>Review →</button></td></tr>)}</tbody></table></div></>}
@@ -342,6 +471,194 @@ function Reports({notify}){return <><div className="hero"><div><p className="eye
 function Audit(){return <><div className="hero"><div><p className="eyebrow">EVIDENCE TRACEABILITY</p><h1>Audit trail</h1><p>Every verification and officer action in one immutable review log.</p></div><button className="secondary">⇩ Export logs</button></div><div className="card table-card"><table><thead><tr><th>TIMESTAMP</th><th>USER</th><th>TENDER</th><th>BIDDER</th><th>ACTION</th><th>RESULT</th></tr></thead><tbody>{[['10:21 AM','Procurement Officer','GEM/2026/B/10234','ABC Technologies','GST Verification','Completed'],['10:24 AM','AI Verification Engine','GEM/2026/B/10234','ABC Technologies','OEM Authorization','Issue detected'],['10:31 AM','Procurement Officer','GEM/2026/B/10234','ABC Technologies','Compliance reviewed','Recorded']].map(r=><tr key={r[0]}>{r.map((x,i)=><td key={i}>{i===5?<Badge type={x==='Completed'?'verified':'review'}>{x}</Badge>:x}</td>)}</tr>)}</tbody></table></div></>}
 function Placeholder({title}){return <div className="empty"><div>◈</div><h1>{title}</h1><p>This working prototype is ready to be configured for your procurement process.</p></div>}
 
+/* ---------------------------------------------------------------------- */
+/* SETTINGS — shared building blocks                                      */
+/* ---------------------------------------------------------------------- */
+function Toggle({checked,onChange,label}){
+ return <button type="button" role="switch" aria-checked={checked} aria-label={label} className={'toggle '+(checked?'on':'')} onClick={()=>onChange(!checked)}><span className="toggle-knob"/></button>
+}
+function SettingsRow({label,description,children}){
+ return <div className="settings-row"><div className="settings-row-copy"><b>{label}</b>{description&&<p>{description}</p>}</div><div className="settings-row-control">{children}</div></div>
+}
+function SettingsCard({icon,title,description,children,footer}){
+ return <div className="card settings-card"><div className="settings-card-head"><div className="settings-card-icon">{icon}</div><div><h3>{title}</h3><p>{description}</p></div></div><div className="settings-card-body">{children}</div>{footer&&<div className="settings-card-footer">{footer}</div>}</div>
+}
+
+const verificationConfig=[
+ ['GSTN','Verify GST registration information.'],
+ ['Udyam / MSME','Verify MSME/Udyam registration information.'],
+ ['PAN / Income Tax','Verify PAN and tax-related information.'],
+ ['MCA21','Verify company and corporate information.'],
+ ['Startup India','Verify startup registration information.'],
+ ['DigiLocker','Verify submitted digital documents.'],
+ ['BIS / DPIIT','Verify applicable standards, certification and DPIIT-related information.'],
+ ['Blacklisting / Debarment','Check bidder blacklisting/debarment status.']
+];
+const notificationConfig=[
+ ['newTender','New Tender Uploaded'],
+ ['bidVerified','Bid Verification Completed'],
+ ['highRisk','High-Risk Bidder Detected'],
+ ['complianceFail','Compliance Failure'],
+ ['missingDocs','Missing Documents'],
+ ['verificationFailed','Verification Failed'],
+ ['deadline','Tender Deadline Approaching'],
+ ['blacklisted','Blacklisted / Debarred Bidder Detected'],
+ ['reportGenerated','Report Generated']
+];
+const accentOptions=[['blue','Blue','#1466c3'],['teal','Teal','#0d9c8b'],['indigo','Indigo','#3949ab'],['slate','Slate','#475569']];
+
+function EditProfileModal({profile,onClose,onSave}){
+ const [draft,setDraft]=useState(profile);
+ const set=(k,v)=>setDraft(d=>({...d,[k]:v}));
+ useEffect(()=>{const onKey=e=>{if(e.key==='Escape')onClose()};document.addEventListener('keydown',onKey);return()=>document.removeEventListener('keydown',onKey)},[onClose]);
+ return <div className="modal-bg" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}>
+  <div className="integration-modal" role="dialog" aria-modal="true" aria-label="Edit profile">
+   <button className="close" onClick={onClose} aria-label="Close">×</button>
+   <p className="eyebrow">PROFILE & ORGANIZATION</p>
+   <h2>Edit profile</h2>
+   <div className="integration-modal-fields settings-form-grid">
+    <label>Full name<input value={draft.name} onChange={e=>set('name',e.target.value)}/></label>
+    <label>Designation<input value={draft.designation} onChange={e=>set('designation',e.target.value)}/></label>
+    <label>Official email<input type="email" value={draft.email} onChange={e=>set('email',e.target.value)}/></label>
+    <label>Phone number<input value={draft.phone} onChange={e=>set('phone',e.target.value)}/></label>
+    <label>Organization / Department<input value={draft.organization} onChange={e=>set('organization',e.target.value)}/></label>
+    <label>Officer ID<input value={draft.employeeId} onChange={e=>set('employeeId',e.target.value)}/></label>
+    <label>Department<input value={draft.department} onChange={e=>set('department',e.target.value)}/></label>
+   </div>
+   <div className="modal-footer"><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={()=>onSave(draft)}>Save</button></div>
+  </div>
+ </div>
+}
+
+function ChangePasswordModal({onClose,onSave}){
+ const [current,setCurrent]=useState(''),[next,setNext]=useState(''),[confirm,setConfirm]=useState(''),[error,setError]=useState('');
+ useEffect(()=>{const onKey=e=>{if(e.key==='Escape')onClose()};document.addEventListener('keydown',onKey);return()=>document.removeEventListener('keydown',onKey)},[onClose]);
+ const submit=()=>{
+  if(!current||!next||!confirm){setError('Please fill in every field.');return}
+  if(next!==confirm){setError('New password and confirmation do not match.');return}
+  setError('');
+  onSave();
+ };
+ return <div className="modal-bg" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}>
+  <div className="integration-modal" role="dialog" aria-modal="true" aria-label="Change password">
+   <button className="close" onClick={onClose} aria-label="Close">×</button>
+   <p className="eyebrow">SECURITY</p>
+   <h2>Change password</h2>
+   <label>Current password<input type="password" value={current} onChange={e=>setCurrent(e.target.value)}/></label>
+   <label>New password<input type="password" value={next} onChange={e=>setNext(e.target.value)}/></label>
+   <label>Confirm new password<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>
+   {error&&<div className="integration-test-result testing settings-error">{error}</div>}
+   <p className="integration-modal-note">This is a prototype — no backend authentication is performed and no password is stored or transmitted.</p>
+   <div className="modal-footer"><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={submit}>Update Password</button></div>
+  </div>
+ </div>
+}
+
+/* ---------------------------------------------------------------------- */
+/* SETTINGS — the six sections                                            */
+/* ---------------------------------------------------------------------- */
+function Settings({notify,appearance,notifPrefs,setNotifPrefs}){
+ const {theme,setTheme,density,setDensity,animations,setAnimations,accent,setAccent,sidebarCollapsed,setSidebarCollapsed}=appearance;
+
+ const [profile,setProfile]=usePersistentState('gem_profile',{name:'Procurement Officer',email:'officer@cpse.gov.in',phone:'+91 98XXXXXX10',designation:'Procurement Officer',organization:'Central Public Sector Enterprise',employeeId:'CPSE-PO-1042',department:'Procurement & Contracts'});
+ const [editingProfile,setEditingProfile]=useState(false);
+
+ const [prefs,setPrefs]=usePersistentState('gem_procurement_prefs',{minScore:80,riskThreshold:60,requireApproval:true,autoCheck:true,complianceWarnings:true,missingDocAlerts:true});
+
+ const [verification,setVerification]=usePersistentState('gem_verification_settings',()=>Object.fromEntries(verificationConfig.map(([name],i)=>[name,{enabled:true,env:i===3?'Sandbox':'Demo connected'}])));
+
+ const [security,setSecurity]=usePersistentState('gem_security',{twoFactor:true,sessionTimeout:'30'});
+ const [changingPassword,setChangingPassword]=useState(false);
+
+ return <>
+  <div className="hero"><div><p className="eyebrow">SYSTEM CONFIGURATION</p><h1>Settings</h1><p>Manage your account, procurement preferences and system configuration.</p></div></div>
+
+  <div className="settings-grid">
+
+   <SettingsCard icon="◔" title="Profile & Organization" description="Your officer identity and department details" footer={<button className="primary" onClick={()=>setEditingProfile(true)}>Edit Profile</button>}>
+    <div className="settings-profile-summary">
+     <div className="avatar settings-profile-avatar">{profile.name.split(' ').map(w=>w[0]).slice(0,2).join('')}</div>
+     <div className="settings-profile-details">
+      <b>{profile.name}</b><small>{profile.designation}</small>
+      <div className="settings-profile-grid">
+       <div><small>Email</small><span>{profile.email}</span></div>
+       <div><small>Phone</small><span>{profile.phone}</span></div>
+       <div><small>Organization</small><span>{profile.organization}</span></div>
+       <div><small>Officer ID</small><span>{profile.employeeId}</span></div>
+       <div><small>Department</small><span>{profile.department}</span></div>
+      </div>
+     </div>
+    </div>
+   </SettingsCard>
+
+   <SettingsCard icon="◈" title="Procurement Preferences" description="Configure compliance and risk rules" footer={<button className="primary" onClick={()=>notify('Procurement preferences saved.')}>Save Preferences</button>}>
+    <SettingsRow label="Minimum Compliance Score" description="Bids below this score are flagged for review"><input type="number" min="0" max="100" className="settings-number" value={prefs.minScore} onChange={e=>setPrefs({...prefs,minScore:Number(e.target.value)})}/><span className="settings-suffix">%</span></SettingsRow>
+    <SettingsRow label="High Risk Threshold" description="Bids below this score are marked high risk"><input type="number" min="0" max="100" className="settings-number" value={prefs.riskThreshold} onChange={e=>setPrefs({...prefs,riskThreshold:Number(e.target.value)})}/><span className="settings-suffix">%</span></SettingsRow>
+    <SettingsRow label="Human Approval Required" description="Require human approval before final decision"><Toggle checked={prefs.requireApproval} onChange={v=>setPrefs({...prefs,requireApproval:v})} label="Human approval required"/></SettingsRow>
+    <SettingsRow label="Automatic Compliance Check" description="Run AI compliance checks as documents are uploaded"><Toggle checked={prefs.autoCheck} onChange={v=>setPrefs({...prefs,autoCheck:v})} label="Automatic compliance check"/></SettingsRow>
+    <SettingsRow label="Compliance Warnings" description="Show inline warnings for at-risk bidders"><Toggle checked={prefs.complianceWarnings} onChange={v=>setPrefs({...prefs,complianceWarnings:v})} label="Compliance warnings"/></SettingsRow>
+    <SettingsRow label="Missing Document Alerts" description="Alert officers when required documents are absent"><Toggle checked={prefs.missingDocAlerts} onChange={v=>setPrefs({...prefs,missingDocAlerts:v})} label="Missing document alerts"/></SettingsRow>
+    <p className="settings-footnote">The final procurement decision always remains with the human Procurement Officer.</p>
+   </SettingsCard>
+
+   <SettingsCard icon="⌁" title="Verification Settings" description="Government-source verification used during bid checks" footer={<button className="primary" onClick={()=>notify('Verification settings saved.')}>Save Verification Settings</button>}>
+    {verificationConfig.map(([name,desc])=><SettingsRow label={name} description={desc} key={name}>
+     <span className="settings-inline"><Toggle checked={verification[name].enabled} onChange={v=>setVerification({...verification,[name]:{...verification[name],enabled:v}})} label={'Enable '+name}/><Badge type={verification[name].env==='Sandbox'?'review':'verified'}>{verification[name].env}</Badge></span>
+    </SettingsRow>)}
+    <p className="settings-footnote">These toggles only control frontend prototype behavior — no live government API is called and no credentials are collected.</p>
+   </SettingsCard>
+
+   <SettingsCard icon="♧" title="Notifications" description="Choose what you're alerted about, and how" footer={<button className="primary" onClick={()=>notify('Notification preferences saved.')}>Save Notification Settings</button>}>
+    {notificationConfig.map(([key,label])=><SettingsRow label={label} key={key}><Toggle checked={notifPrefs[key]} onChange={v=>setNotifPrefs({...notifPrefs,[key]:v})} label={label}/></SettingsRow>)}
+    <p className="settings-subhead">Notification methods</p>
+    <SettingsRow label="In-App Notifications"><Toggle checked={notifPrefs.inApp} onChange={v=>setNotifPrefs({...notifPrefs,inApp:v})} label="In-app notifications"/></SettingsRow>
+    <SettingsRow label="Email Notifications"><Toggle checked={notifPrefs.email} onChange={v=>setNotifPrefs({...notifPrefs,email:v})} label="Email notifications"/></SettingsRow>
+    <p className="settings-subhead">Sound</p>
+    <SettingsRow label="Notification Sound" description="Play a short chime when a new notification arrives">
+     <span className="settings-inline"><Toggle checked={notifPrefs.soundEnabled} onChange={v=>setNotifPrefs({...notifPrefs,soundEnabled:v})} label="Notification sound"/><button className="secondary" onClick={()=>{playNotificationSound(notifPrefs.soundVolume);notify('Notification sound tested.')}}>Test Sound</button></span>
+    </SettingsRow>
+    <SettingsRow label="Notification Volume" description="Adjust how loud the notification chime plays">
+     <span className="settings-inline"><input type="range" min="0" max="100" className="settings-range" value={Math.round(notifPrefs.soundVolume*100)} onChange={e=>setNotifPrefs({...notifPrefs,soundVolume:Number(e.target.value)/100})}/><span className="settings-suffix">{Math.round(notifPrefs.soundVolume*100)}%</span></span>
+    </SettingsRow>
+   </SettingsCard>
+
+   <SettingsCard icon="⌾" title="Security" description="Password, verification, and session controls">
+    <SettingsRow label="Password" description="••••••••••••"><button className="secondary" onClick={()=>setChangingPassword(true)}>Change Password</button></SettingsRow>
+    <SettingsRow label="Two-Factor Authentication" description="Add an additional layer of security to your account"><Toggle checked={security.twoFactor} onChange={v=>setSecurity({...security,twoFactor:v})} label="Two-factor authentication"/></SettingsRow>
+    <SettingsRow label="Session Timeout" description="Automatically sign out after inactivity">
+     <select className="settings-select" value={security.sessionTimeout} onChange={e=>setSecurity({...security,sessionTimeout:e.target.value})}>
+      <option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option>
+     </select>
+    </SettingsRow>
+    <SettingsRow label="Active Sessions" description="Current device · Active now">
+     <button className="secondary" onClick={()=>{if(window.confirm('Log out from all other devices?'))notify('Logged out from all other devices.')}}>Logout from all other devices</button>
+    </SettingsRow>
+   </SettingsCard>
+
+   <SettingsCard icon="◑" title="Appearance" description="Personalize how the workspace looks and feels" footer={<button className="secondary" onClick={()=>{setTheme('light');setDensity('comfortable');setAnimations(true);setAccent('blue');setSidebarCollapsed(false);notify('Appearance settings reset to default.')}}>Reset to Default</button>}>
+    <SettingsRow label="Theme" description="Applies across the whole workspace">
+     <div className="settings-option-group">{['light','dark','system'].map(t=><button key={t} className={'settings-option '+(theme===t?'active':'')} onClick={()=>setTheme(t)}>{t==='light'?'Light':t==='dark'?'Dark':'System Default'}</button>)}</div>
+    </SettingsRow>
+    <SettingsRow label="Interface Density">
+     <div className="settings-option-group">{['comfortable','compact'].map(d=><button key={d} className={'settings-option '+(density===d?'active':'')} onClick={()=>setDensity(d)}>{d==='comfortable'?'Comfortable':'Compact'}</button>)}</div>
+    </SettingsRow>
+    <SettingsRow label="Animations" description="Enable smooth UI animations"><Toggle checked={animations} onChange={setAnimations} label="Enable smooth UI animations"/></SettingsRow>
+    <SettingsRow label="Sidebar" description="Persists as you move between pages">
+     <div className="settings-option-group">{[['expanded',false],['collapsed',true]].map(([label,val])=><button key={label} className={'settings-option '+(sidebarCollapsed===val?'active':'')} onClick={()=>setSidebarCollapsed(val)}>{label==='expanded'?'Expanded':'Collapsed'}</button>)}</div>
+    </SettingsRow>
+    <SettingsRow label="Accent Color">
+     <div className="settings-swatches">{accentOptions.map(([id,label,hex])=><button key={id} className={'settings-swatch '+(accent===id?'active':'')} style={{'--swatch':hex}} onClick={()=>setAccent(id)} aria-label={label} title={label}/>)}</div>
+    </SettingsRow>
+   </SettingsCard>
+
+  </div>
+
+  {editingProfile&&<EditProfileModal profile={profile} onClose={()=>setEditingProfile(false)} onSave={draft=>{setProfile(draft);setEditingProfile(false);notify('Profile updated successfully.')}}/>}
+  {changingPassword&&<ChangePasswordModal onClose={()=>setChangingPassword(false)} onSave={()=>{setChangingPassword(false);notify('Password updated successfully.')}}/>}
+ </>
+}
+
+
 function HelpChat(){
  const [open,setOpen]=useState(false),[input,setInput]=useState('');
  const [messages,setMessages]=useState([{role:'bot',text:'Hello! I’m the GeM Compliance AI assistant. Ask me how to use any feature in this workspace.'}]);
@@ -366,7 +683,7 @@ function VerificationWithFilter({selected,setSelected,expanded,setExpanded,onDec
  const shown=requirements.map((item,index)=>({item,index})).filter(({item})=>filter==='all'||item[1]===filter);
  return <>
   <div className="verify-head"><div><button className="back">← Back to verifications</button><h1>{bidder.name}</h1><p>Supply of IT Equipment <span>•</span> GEM/2026/B/10234</p></div><div><button className="secondary" onClick={()=>notify('Compliance report prepared')}>⇩ Export report</button><button className="primary" onClick={()=>onDecision('Approve / Qualify')}>Final review →</button></div></div>
-  <div className="assessment"><div className="score"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42"/><circle className="score-ring" cx="50" cy="50" r="42" style={{strokeDashoffset:264-(264*bidder.score/100)}}/></svg><div><b>{bidder.score}</b><span>/100</span><small>Compliance score</small></div></div><div className="assessment-copy"><p className="eyebrow">AI VERIFICATION COMPLETE</p><h2>{bidder.score>=85?'Strong compliance profile':'Review attention required'}</h2><p>Evidence has been analyzed against 12 tender-specific requirements.</p><Badge type={bidder.risk==='Low'?'verified':'review'}>{bidder.risk.toUpperCase()} RISK</Badge></div><div className="review-summary"><b>8 <small>Verified</small></b><b>2 <small>Needs review</small></b><b>2 <small>Not verified</small></b></div></div>
+  <div className="assessment"><div className="compliance-score"><div className="score-ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42"/><circle className="score-ring-fill" cx="50" cy="50" r="42" style={{strokeDashoffset:264-(264*bidder.score/100)}}/></svg><div className="score-value"><span className="score-number">{bidder.score}</span><span className="score-total">/100</span></div></div><div className="score-label">Compliance score</div></div><div className="assessment-copy"><p className="eyebrow">AI VERIFICATION COMPLETE</p><h2>{bidder.score>=85?'Strong compliance profile':'Review attention required'}</h2><p>Evidence has been analyzed against 12 tender-specific requirements.</p><Badge type={bidder.risk==='Low'?'verified':'review'}>{bidder.risk.toUpperCase()} RISK</Badge></div><div className="review-summary"><b>8 <small>Verified</small></b><b>2 <small>Needs review</small></b><b>2 <small>Not verified</small></b></div></div>
   <div className="advisory">✦ <b>AI-generated assessment.</b> Final qualification/disqualification decision must be made by the Procurement Officer.</div>
   <div className="split"><div><div className="section-title"><div><h2>Compliance requirements</h2><p>Evidence-based AI assessment for this bidder</p></div><div className="filter-control"><button className="secondary filter-button" onClick={()=>setFilterOpen(!filterOpen)} aria-expanded={filterOpen}>Filter: {labels[filter]} <span>⌄</span></button>{filterOpen&&<div className="filter-menu">{Object.entries(labels).map(([value,label])=><button key={value} className={filter===value?'selected':''} onClick={()=>{setFilter(value);setFilterOpen(false);setExpanded(null)}}><i>{filter===value?'✓':''}</i>{label}</button>)}</div>}</div></div>
    {shown.length?shown.map(({item:r,index:i})=><div className={'requirement '+(expanded===i?'open':'')} key={r[0]}><button className="req-top" onClick={()=>setExpanded(expanded===i?null:i)}><span className={'status-icon '+r[1]}>{r[1]==='verified'?'✓':r[1]==='review'?'!':'×'}</span><div><b>{r[0]}</b><small>{r[1]==='verified'?'VERIFIED':r[1]==='review'?'NEEDS REVIEW':'NOT VERIFIED'}</small></div><span className="chev">⌄</span></button>{expanded===i&&<div className="req-details"><div><small>{r[2]}</small><b>{r[3]}</b></div><p>{r[1]==='review'?'Submitted financial documents indicate turnover below the tender threshold. Officer review is required.':r[1]==='failed'?'Required document was not found or could not be verified. Request clarification or verify manually.':'Source verified through document extraction and cross-document matching.'}</p><div><button className="secondary" onClick={()=>notify('Evidence viewer opened for '+r[0])}>View evidence</button><button className="text-btn" onClick={()=>notify('Auditable reasoning summary opened')}>✦ Why?</button></div></div>}</div>):<div className="filter-empty">No requirements match this filter. <button onClick={()=>setFilter('all')}>Show all</button></div>}</div>
