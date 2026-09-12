@@ -2,6 +2,47 @@ import React, {useState, useEffect, useRef} from 'react';
 import {createRoot} from 'react-dom/client';
 import './styles.css';
 
+/* ---------------------------------------------------------------------- */
+/* BACKEND INTEGRATION                                                     */
+/* Change VITE_API_BASE_URL in .env when the backend host is available.   */
+/* Components use the normalized shapes below, not raw backend responses. */
+/* ---------------------------------------------------------------------- */
+const API_BASE_URL=(import.meta.env.VITE_API_BASE_URL||'http://localhost:8000').replace(/\/$/,'');
+const API_ENDPOINTS={
+ login:'/api/auth/login',dashboard:'/api/dashboard/summary',tenders:'/api/tenders',
+ tender:id=>`/api/tenders/${id}`,tenderBidders:id=>`/api/tenders/${id}/bidders`,
+ bidder:id=>`/api/bidders/${id}`,report:id=>`/api/bidders/${id}/verification-report`,
+ uploadTender:'/api/tenders/upload',uploadBid:'/api/bids/upload',verify:id=>`/api/bids/${id}/verify`,
+ decision:id=>`/api/reports/${id}/decision`,audit:id=>`/api/reports/${id}/audit-logs`
+};
+async function apiRequest(path,{method='GET',body,token,formData=false}={}){
+ const headers={};
+ if(!formData)headers['Content-Type']='application/json';
+ if(token)headers.Authorization=`Bearer ${token}`;
+ const response=await fetch(`${API_BASE_URL}${path}`,{method,headers,body:body?(formData?body:JSON.stringify(body)):undefined});
+ const payload=await response.json().catch(()=>null);
+ if(!response.ok)throw new Error(payload?.message||payload?.detail||`Request failed (${response.status})`);
+ return payload;
+}
+const api={
+ loginOfficer:credentials=>apiRequest(API_ENDPOINTS.login,{method:'POST',body:credentials}),
+ getDashboardSummary:token=>apiRequest(API_ENDPOINTS.dashboard,{token}),
+ getTenders:token=>apiRequest(API_ENDPOINTS.tenders,{token}),
+ getTenderById:(id,token)=>apiRequest(API_ENDPOINTS.tender(id),{token}),
+ getTenderBidders:(id,token)=>apiRequest(API_ENDPOINTS.tenderBidders(id),{token}),
+ getBidderById:(id,token)=>apiRequest(API_ENDPOINTS.bidder(id),{token}),
+ getVerificationReport:(id,token)=>apiRequest(API_ENDPOINTS.report(id),{token}),
+ runVerification:(id,token)=>apiRequest(API_ENDPOINTS.verify(id),{method:'POST',token}),
+ uploadTender:(file,token)=>{const body=new FormData();body.append('file',file);return apiRequest(API_ENDPOINTS.uploadTender,{method:'POST',body,token,formData:true})},
+ uploadBid:(file,tenderId,token)=>{const body=new FormData();body.append('file',file);body.append('tenderId',tenderId);return apiRequest(API_ENDPOINTS.uploadBid,{method:'POST',body,token,formData:true})},
+ submitOfficerDecision:(reportId,decision,remarks,token)=>apiRequest(API_ENDPOINTS.decision(reportId),{method:'POST',body:{decision,remarks},token}),
+ getAuditLogs:(reportId,token)=>apiRequest(API_ENDPOINTS.audit(reportId),{token})
+};
+// Backend response adapters. Adjust only these mappings if backend names change.
+const normalizeTender=t=>({id:t.id||t.tenderId||t.referenceNumber,referenceNumber:t.referenceNumber||t.id||t.tenderId,title:t.title||t.tenderTitle||'Untitled tender',organization:t.organization||t.department||'—',status:t.status||'Pending',bids:Number(t.totalBids??t.bids??0),verifiedBids:Number(t.verifiedBids??0),pendingBids:Number(t.pendingBids??0),highRiskBids:Number(t.highRiskBids??0),deadline:t.closingDate||t.deadline||'—',category:t.category||'General'});
+const normalizeBidder=b=>({id:b.id||b.bidderId||b.companyName,name:b.companyName||b.name||'Unnamed bidder',score:Number(b.complianceScore??b.score??0),risk:b.riskLevel||b.risk||'Medium',issue:b.mainIssue||b.issue||'Verification pending',state:b.verificationStatus||b.state||'Needs Review',gstin:b.gstin,pan:b.pan,udyamNumber:b.udyamNumber});
+const normalizeReport=r=>({id:r.id||r.reportId,complianceScore:Number(r.complianceScore??r.score??0),riskLevel:r.riskLevel||r.risk||'Medium',recommendation:r.recommendation||'',verificationStatus:r.verificationStatus||'Needs Review',tenderRuleChecks:r.tenderRuleChecks||[],governmentRecordChecks:r.governmentRecordChecks||[],createdAt:r.createdAt,updatedAt:r.updatedAt});
+
 const bidders=[
  {name:'ABC Technologies Pvt. Ltd.',score:94,risk:'Low',issue:'Fully verified',state:'Verified'},
  {name:'Bharat Digital Systems',score:86,risk:'Medium',issue:'OEM authorization review',state:'Needs Review'},
@@ -72,29 +113,33 @@ function useScrollReveal(deps=[]){
 
 
 function AppRouter(){
- const [authenticated,setAuthenticated]=useState(false);
+ const [session,setSession]=useState(()=>{try{return JSON.parse(sessionStorage.getItem('procurement-session')||'null')}catch{return null}});
  const [path,navigate]=useRoute();
 
- const login=()=>{setAuthenticated(true);navigate('/dashboard')};
- const logout=()=>{setAuthenticated(false);navigate('/')};
+ const login=async credentials=>{
+  try{
+   const result=await api.loginOfficer(credentials);
+   if(!result?.token||!result?.officer)throw new Error('The login response is missing token or officer details.');
+   const next={token:result.token,officer:result.officer,isDemo:false};sessionStorage.setItem('procurement-session',JSON.stringify(next));setSession(next);navigate('/dashboard');return {isDemo:false};
+  }catch(error){
+   const validDemo=credentials.email==='officer@cpse.gov.in'&&credentials.password==='Procurement@2026';
+   if(!validDemo)throw error;
+   const next={token:null,officer:{id:'demo-officer',name:'Procurement Officer',email:credentials.email,role:'Procurement Officer',department:'CPSE'},isDemo:true};sessionStorage.setItem('procurement-session',JSON.stringify(next));setSession(next);navigate('/dashboard');return {isDemo:true};
+  }
+ };
+ const logout=()=>{sessionStorage.removeItem('procurement-session');setSession(null);navigate('/')};
 
- // Resolve which screen this path + auth state should show.
- let view;
- if(path==='/login')view=authenticated?'app':'login';
- else if(path==='/')view='landing';
- else view=authenticated?'app':'landing';
+ // The app starts at the internal officer sign-in screen. There is no
+ // public/marketing landing page for this restricted workspace.
+ const view=session?'app':'login';
 
- // Keep the address bar consistent with what's actually rendered —
- // e.g. an authenticated user hitting /login lands on the dashboard URL,
- // and an unauthenticated user on an unknown/protected path is sent home.
  useEffect(()=>{
-  if(view==='app'&&path==='/login')navigate('/dashboard');
-  if(view==='landing'&&path!=='/'&&path!=='/login')navigate('/');
+  if(view==='app'&&path!=='/dashboard')navigate('/dashboard');
+  if(view==='login'&&path!=='/')navigate('/');
  },[view,path]);
 
  if(view==='login')return <Login onSignIn={login}/>;
- if(view==='app')return <App onLogout={logout}/>;
- return <Landing onLogin={()=>navigate('/login')}/>;
+ return <App onLogout={logout} session={session}/>;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -193,21 +238,52 @@ function Landing({onLogin}){
 }
 
 /* ---------------------------------------------------------------------- */
-/* PAGE 2 — LOGIN PAGE (unchanged design, now its own route)              */
+/* OFFICER SIGN-IN — the application's single unauthenticated screen      */
 /* ---------------------------------------------------------------------- */
 function Login({onSignIn}){
  const [showPassword,setShowPassword]=useState(false);
- return <div className="login-page login-page-solo"><form className="login-card" onSubmit={e=>{e.preventDefault();onSignIn()}}><div className="login-brand"><div className="logo">G</div><div><b>GeM Compliance AI</b><small>AI-POWERED PROCUREMENT VERIFICATION</small></div></div><div className="login-logo">G</div><h2>Welcome back</h2><p>Sign in to your authorized officer workspace.</p><label>Official email<input type="email" defaultValue="officer@cpse.gov.in" required/></label><label>Password<span className="password-field"><input type={showPassword?'text':'password'} defaultValue="Procurement@2026" required/><button type="button" className="password-toggle" aria-label={showPassword?'Hide password':'Show password'} title={showPassword?'Hide password':'Show password'} onClick={()=>setShowPassword(!showPassword)}>{showPassword?'◉':'◌'}</button></span></label><div className="remember"><label><input type="checkbox" defaultChecked/> Remember me</label><button type="button">Forgot password?</button></div><button className="primary sign-in">Sign in securely →</button><div className="authorized">⌾ Authorized Procurement Personnel Only</div></form></div>
+ const [email,setEmail]=useState('officer@cpse.gov.in'),[password,setPassword]=useState('Procurement@2026'),[error,setError]=useState(''),[submitting,setSubmitting]=useState(false);
+ const submit=async event=>{event.preventDefault();setError('');setSubmitting(true);try{await onSignIn({email,password})}catch(err){setError(err.message||'Unable to sign in. Check your credentials and try again.')}finally{setSubmitting(false)}};
+ return <div className="login-page">
+  <header className="login-header">
+   <div className="login-brand"><div className="logo">G</div><div><b>GeM Bid Compliance Verification Platform</b><small>AI-ASSISTED PROCUREMENT COMPLIANCE</small></div></div>
+  </header>
+  <main className="login-layout">
+   <section className="login-intro" aria-labelledby="login-intro-title">
+    <p className="eyebrow">AUTHORISED PROCUREMENT WORKSPACE</p>
+    <h1 id="login-intro-title">Procurement compliance, verified with evidence.</h1>
+    <p>AI-assisted bid compliance verification for authorised procurement officers. Verify tender eligibility, cross-check bidder claims, and maintain auditable decisions.</p>
+    <ul className="login-benefits">
+     <li><span>✓</span><div><b>Tender eligibility verification</b><small>Check bids against every mandatory tender requirement.</small></div></li>
+     <li><span>⌁</span><div><b>Government-record cross-checks</b><small>Compare bidder claims with trusted compliance records.</small></div></li>
+     <li><span>◷</span><div><b>Audit-ready decision trail</b><small>Keep every finding, score, and officer action traceable.</small></div></li>
+    </ul>
+    <div className="login-security-note"><span>◇</span> Every verification and officer decision is securely audit logged.</div>
+   </section>
+   <form className="login-card" onSubmit={submit} noValidate>
+    <div className="login-logo">G</div>
+    <h2>Sign in to Procurement Workspace</h2>
+    <p>Use your department-issued credentials to continue.</p>
+    <label htmlFor="official-email">Department / official email<input id="official-email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" required/></label>
+    <label htmlFor="officer-password">Password<span className="password-field"><input id="officer-password" type={showPassword?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" required/><button type="button" className="password-toggle" aria-label={showPassword?'Hide password':'Show password'} title={showPassword?'Hide password':'Show password'} onClick={()=>setShowPassword(!showPassword)}>{showPassword?'◉':'◌'}</button></span></label>
+    {error&&<p className="form-error" role="alert">{error}</p>}
+    <button className="primary sign-in" disabled={submitting}>{submitting?'Signing in...':'Sign in with Official Account →'}</button>
+    <div className="authorized"><b>⌾ Restricted to authorised procurement personnel.</b><span>Need access? Contact your procurement administrator.</span></div>
+   </form>
+  </main>
+ </div>
 }
 
 /* ---------------------------------------------------------------------- */
 /* AUTHENTICATED WORKSPACE (unchanged aside from onLogout wiring)         */
 /* ---------------------------------------------------------------------- */
-function App({onLogout}){
+function App({onLogout,session}){
  const [page,setPage]=useState('Dashboard'),[collapsed,setCollapsed]=useState(false),[showWorkflow,setWorkflow]=useState(false),[step,setStep]=useState(1),[query,setQuery]=useState(''),[selected,setSelected]=useState('ABC Technologies Pvt. Ltd.'),[expanded,setExpanded]=useState(null),[decision,setDecision]=useState(null),[remark,setRemark]=useState(''),[toast,setToast]=useState(''),[profileOpen,setProfileOpen]=useState(false);
+ const [dashboard,setDashboard]=useState(null),[tenders,setTenders]=useState([]),[dataLoading,setDataLoading]=useState(true),[dataError,setDataError]=useState(''),[isUsingDemoData,setIsUsingDemoData]=useState(session.isDemo);
  const notify=m=>{setToast(m);setTimeout(()=>setToast(''),2600)};
  const [selectedTender,setSelectedTender]=useState(null);
  const shown=bidders.filter(b=>b.name.toLowerCase().includes(query.toLowerCase()));
+ useEffect(()=>{let active=true;setDataLoading(true);Promise.all([api.getDashboardSummary(session.token),api.getTenders(session.token)]).then(([summary,tenderList])=>{if(!active)return;setDashboard(summary);setTenders((Array.isArray(tenderList)?tenderList:tenderList.items||[]).map(normalizeTender));setIsUsingDemoData(false);setDataError('')}).catch(error=>{if(!active)return;setDashboard(null);setTenders([]);setIsUsingDemoData(true);setDataError(error.message||'Backend connection unavailable')}).finally(()=>active&&setDataLoading(false));return()=>{active=false}},[session.token]);
  const selectPage=p=>{setPage(p); if(p==='Bid Verification')setSelected('ABC Technologies Pvt. Ltd.')};
  const profileRef=useRef(null);
  useEffect(()=>{
@@ -223,11 +299,11 @@ function App({onLogout}){
   <aside className="sidebar"><div className="brand"><div className="logo">G</div>{!collapsed&&<div><b>GeM Compliance AI</b><small>AI-POWERED PROCUREMENT</small></div>}</div>
    <button className="collapse" onClick={()=>setCollapsed(!collapsed)}>{collapsed?'›':'‹'}</button>
    <nav>{nav.map((n,i)=><button key={n} className={page===n?'active':''} onClick={()=>selectPage(n)}><i>{icons[i]}</i>{!collapsed&&n}</button>)}</nav>
-   <div className="officer"><div className="avatar">PO</div>{!collapsed&&<div><b>Procurement Officer</b><small><em/> Online</small></div>}</div></aside>
+   <div className="officer"><div className="avatar">PO</div>{!collapsed&&<div><b>{session.officer.name||'Procurement Officer'}</b><small><em/> Online</small></div>}</div></aside>
   <main><header><div className="crumb">{page}</div><div className="header-actions"><div className="search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search tender, bidder, GSTIN..."/></div>
-   <div className="profile-wrap" ref={profileRef}><button className="profile" onClick={()=>setProfileOpen(!profileOpen)} aria-haspopup="true" aria-expanded={profileOpen}><div className="avatar">PO</div><span>Procurement Officer</span><b className={profileOpen?'flip':''}>⌄</b></button>
+   <div className="profile-wrap" ref={profileRef}><button className="profile" onClick={()=>setProfileOpen(!profileOpen)} aria-haspopup="true" aria-expanded={profileOpen}><div className="avatar">PO</div><span>{session.officer.name||'Procurement Officer'}</span><b className={profileOpen?'flip':''}>⌄</b></button>
     {profileOpen&&<div className="profile-menu" role="menu">
-     <div className="profile-menu-head"><div className="avatar">PO</div><div><b>Procurement Officer</b><small>Authorized Officer</small></div></div>
+     <div className="profile-menu-head"><div className="avatar">PO</div><div><b>{session.officer.name||'Procurement Officer'}</b><small>{session.officer.role||'Authorized Officer'}</small></div></div>
      <div className="profile-menu-group">
       <button role="menuitem" onClick={()=>{setProfileOpen(false);notify('Profile settings opened')}}><i>⚙</i>Profile settings</button>
       <button role="menuitem" onClick={()=>{setProfileOpen(false);notify('Account & security opened')}}><i>🔒</i>Account & Security</button>
@@ -239,8 +315,9 @@ function App({onLogout}){
    </div>
    </div></header>
    <section className="content">
-    {page==='Dashboard'&&<Dashboard onNew={()=>{setStep(1);setWorkflow(true)}} onPage={selectPage} shown={shown}/>} 
-    {page==='Tenders'&&<Tenders query={query} onView={tender=>{setSelectedTender(tender);setPage('Tender Details')}} onNew={()=>{setStep(1);setWorkflow(true)}}/>}
+    {(dataLoading||isUsingDemoData)&&<div className={'data-status '+(dataError?'warning':'')} role="status">{dataLoading?'Loading workspace data...':`Demo data — backend connection unavailable${dataError?`: ${dataError}`:''}`}</div>}
+    {page==='Dashboard'&&<Dashboard onNew={()=>{setStep(1);setWorkflow(true)}} onPage={selectPage} shown={shown} dashboard={dashboard}/>} 
+    {page==='Tenders'&&<Tenders query={query} tenders={tenders} onView={tender=>{setSelectedTender(tender);setPage('Tender Details')}} onNew={()=>{setStep(1);setWorkflow(true)}}/>}
     {page==='Tender Details'&&<TenderDetails tender={selectedTender} onBack={()=>setPage('Tenders')} onVerify={()=>selectPage('Bid Verification')}/>}
     {page==='Bid Verification'&&<Verification selected={selected} setSelected={setSelected} expanded={expanded} setExpanded={setExpanded} onDecision={setDecision} notify={notify}/>}
     {page==='Risk Center'&&<Risk shown={shown} onReview={b=>{setSelected(b.name);setPage('Bid Verification')}}/>}
@@ -251,13 +328,13 @@ function App({onLogout}){
    </section>
   </main>
   {showWorkflow&&<Workflow step={step} setStep={setStep} close={()=>setWorkflow(false)} notify={notify}/>} 
-  {decision&&<Decision type={decision} remark={remark} setRemark={setRemark} close={()=>setDecision(null)} notify={notify}/>} 
+  {decision&&<Decision type={decision.type} reportId={decision.reportId} token={session.token} remark={remark} setRemark={setRemark} close={()=>setDecision(null)} notify={notify}/>} 
   <HelpChat />
   <WhyDetails />
   {toast&&<div className="toast">✓ {toast}</div>}
  </div>
 }
-function Dashboard({onNew,onPage,shown}){const kpis=[['◈','12','Active Tenders','+2 this month'],['◷','28','Bids Under Verification','6 due today'],['◉','8','Pending Reviews','Action needed'],['⚠','4','High Risk Bidders','2 new this week'],['✓','146','Verified Bids','+12.5%'],['◌','18 min','Avg. Verification Time','4 min faster']];return <>
+function Dashboard({onNew,onPage,shown,dashboard}){const kpis=[['◈',String(dashboard?.activeTenders??12),'Active Tenders',dashboard?.activeTendersTrend||'+2 this month'],['◷',String(dashboard?.bidsUnderVerification??28),'Bids Under Verification',dashboard?.bidsDueToday||'6 due today'],['◉',String(dashboard?.pendingReviews??8),'Pending Reviews','Action needed'],['⚠',String(dashboard?.highRiskBidders??4),'High Risk Bidders',dashboard?.highRiskTrend||'2 new this week'],['✓',String(dashboard?.verifiedBids??146),'Verified Bids',dashboard?.verifiedBidsTrend||'+12.5%'],['◌',dashboard?.averageVerificationTime||'18 min','Avg. Verification Time',dashboard?.verificationTimeTrend||'4 min faster']];return <>
  <div className="hero"><div><p className="eyebrow">PROCUREMENT COMMAND CENTER</p><h1>Good morning, Procurement Officer</h1><p>Here’s your procurement compliance overview.</p></div></div>
  <div className="kpis">{kpis.map((x,i)=><div className="kpi reveal-on-scroll" style={{transitionDelay:(i%6)*80+'ms'}} key={x[2]}><div className="kpi-icon">{x[0]}</div><small>{x[2]}</small><strong>{x[1]}</strong><span className={x[3].includes('Action')?'warn':'trend'}>{x[3]}</span></div>)}</div>
  <div className="analytics"><div className="card chart reveal-on-scroll"><div className="card-title"><div><h3>Compliance overview</h3><p>Verification outcomes across active tenders</p></div><button>Last 7 days⌄</button></div><div className="chart-body"><div className="donut"><div><b>186</b><small>Total bids</small></div></div><div className="legend"><p><i className="dot green"/> Compliant <b>146</b><span>78%</span></p><p><i className="dot amber"/> Needs review <b>28</b><span>15%</span></p><p><i className="dot red"/> Non-compliant <b>12</b><span>7%</span></p></div></div></div><div className="card activity reveal-on-scroll" style={{transitionDelay:'100ms'}}><div className="card-title"><div><h3>Verification activity</h3><p>Document processing & review trends</p></div><button>Weekly⌄</button></div><div className="line-chart"><div className="gridlines"/><svg viewBox="0 0 500 160" preserveAspectRatio="none"><polyline points="0,120 70,105 140,119 210,70 280,90 350,45 430,58 500,20" fill="none" stroke="#1976d2" strokeWidth="4"/><polyline points="0,145 70,135 140,140 210,115 280,130 350,95 430,110 500,78" fill="none" stroke="#14a28b" strokeWidth="3"/></svg><div className="axis"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div></div><div className="chart-key"><span><i className="dot blue"/>Documents verified</span><span><i className="dot teal"/>Issues detected</span></div></div></div>
@@ -268,7 +345,7 @@ function Verification({selected,setSelected,expanded,setExpanded,onDecision,noti
 <div className="split"><div><div className="section-title"><div><h2>Compliance requirements</h2><p>Evidence-based AI assessment for this bidder</p></div><button className="secondary">Filter: All⌄</button></div>{requirements.map((r,i)=><div className={'requirement '+(expanded===i?'open':'')} key={r[0]}><button className="req-top" onClick={()=>setExpanded(expanded===i?null:i)}><span className={'status-icon '+r[1]}>{r[1]==='verified'?'✓':r[1]==='review'?'!':'×'}</span><div><b>{r[0]}</b><small>{r[1]==='verified'?'VERIFIED':r[1]==='review'?'NEEDS REVIEW':'NOT VERIFIED'}</small></div><span className="chev">⌄</span></button>{expanded===i&&<div className="req-details"><div><small>{r[2]}</small><b>{r[3]}</b></div><p>{r[1]==='review'?'Submitted financial documents indicate turnover below the tender threshold. Officer review is required.':r[1]==='failed'?'Required document was not found or could not be verified. Request clarification or verify manually.':'Source verified through document extraction and cross-document matching.'}</p><div><button className="secondary" onClick={()=>notify('Evidence viewer opened for '+r[0])}>View evidence</button><button className="text-btn" onClick={()=>notify('Auditable reasoning summary opened')}>✦ Why?</button></div></div>}</div>)}</div><aside className="right-panel"><h3>Verification details</h3><div className="detail"><small>Verification ID</small><b>VRF-2026-08492</b></div><div className="detail"><small>Processed on</small><b>23 Aug 2026, 10:42 AM</b></div><div className="detail"><small>Documents analyzed</small><b>7 documents</b></div><hr/><h3>Consistency check</h3><p className="inconsistency">⚠ Potential mismatch requiring officer review.</p><div className="match"><span>Company name</span><Badge type="review">Variation</Badge></div><div className="match"><span>PAN</span><Badge type="verified">Match</Badge></div><div className="match"><span>GSTIN</span><Badge type="verified">Match</Badge></div><button className="full secondary" onClick={()=>notify('Consistency report opened')}>View consistency report</button></aside></div></>}
 function Workflow({step,setStep,close,notify}){const steps=['Tender details','Tender document','Bidder documents','AI verification']; const complete=step===4;return <div className="modal-bg"><div className="workflow"><button className="close" onClick={close}>×</button><p className="eyebrow">NEW VERIFICATION</p><h2>{complete?'AI verification in progress':'Create a tender verification'}</h2><div className="steps">{steps.map((s,i)=><span key={s} className={step===i+1?'current':step>i+1?'done':''}><i>{step>i+1?'✓':i+1}</i>{s}</span>)}</div>{step===1&&<div className="form"><label>Tender ID<input defaultValue="GEM/2026/B/10234"/></label><label>Tender title<input defaultValue="Supply of IT Equipment"/></label><label>Department / organization<select><option>Central Public Sector Enterprise</option></select></label><label>Tender category<select><option>IT & Electronics</option></select></label></div>}{step===2&&<Upload title="Upload Tender Document" text="Drop a PDF or DOCX to extract tender requirements." file="IT_Equipment_Tender.pdf"/>}{step===3&&<Upload title="Upload Bid Documents" text="Upload documents received from GeM for verification." file="GST_Certificate.pdf  ·  Udyam_Certificate.pdf  ·  PAN.pdf"/>}{step===4&&<div className="processing"><div className="loader">✦</div><h3>Analyzing tender & bidder documents</h3><p>88% complete · This takes a moment</p>{['Document extraction','Tender requirement extraction','GST verification','Udyam verification','PAN verification','Cross-document consistency check','Risk assessment','Compliance report'].map((x,i)=><div className={'process '+(i<5?'done':i===5?'active':'')} key={x}><span>{i<5?'✓':i===5?'◉':'○'}</span>{x}<small>{i<5?'Complete':i===5?'In progress':''}</small></div>)}</div>}<div className="modal-footer"><button className="secondary" onClick={step===1?close:()=>setStep(step-1)}>Back</button><button className="primary" onClick={()=>complete?(close(),notify('Verification completed — report is ready')):setStep(step+1)}>{complete?'View compliance report':'Continue →'}</button></div></div></div>}
 function Upload({title,text,file}){return <div className="upload"><div className="upload-icon">⇧</div><h3>{title}</h3><p>{text}</p><button className="secondary">Choose files</button><div className="uploaded">✓ <b>{file}</b><span>AI extraction ready</span></div></div>}
-function Decision({type,remark,setRemark,close,notify}){return <div className="modal-bg"><div className="decision"><button className="close" onClick={close}>×</button><p className="eyebrow">FINAL PROCUREMENT REVIEW</p><h2>{type} bidder?</h2><div className="advisory">⚠ <b>AI recommendations are advisory only.</b> The Procurement Officer is solely responsible for the final procurement decision.</div><p>I have reviewed the available evidence and am making this decision based on my assessment.</p><label>Officer remarks <textarea value={remark} onChange={e=>setRemark(e.target.value)} placeholder="Add mandatory decision remarks..."/></label><div className="modal-footer"><button className="secondary" onClick={close}>Cancel</button><button className="primary" disabled={!remark} onClick={()=>{close();notify(type+' recorded in audit trail')}}>Confirm decision</button></div></div></div>}
+function Decision({type,reportId,token,remark,setRemark,close,notify}){const [saving,setSaving]=useState(false),[error,setError]=useState('');const decision=type.includes('Approve')?'approved':type.includes('Reject')?'rejected':'clarification_requested';const submit=async()=>{setSaving(true);setError('');try{await api.submitOfficerDecision(reportId,decision,remark,token);notify(type+' recorded in audit trail');close()}catch(err){if(reportId==='demo-report'){notify(type+' recorded locally (demo fallback)');close()}else setError(err.message||'Unable to save decision.')}finally{setSaving(false)}};return <div className="modal-bg"><div className="decision"><button className="close" onClick={close}>×</button><p className="eyebrow">FINAL PROCUREMENT REVIEW</p><h2>{type} bidder?</h2><div className="advisory">⚠ <b>AI recommendations are advisory only.</b> The Procurement Officer is solely responsible for the final procurement decision.</div><p>I have reviewed the available evidence and am making this decision based on my assessment.</p><label>Officer remarks <textarea value={remark} onChange={e=>setRemark(e.target.value)} placeholder="Add mandatory decision remarks..."/></label>{error&&<p className="form-error" role="alert">{error}</p>}<div className="modal-footer"><button className="secondary" onClick={close} disabled={saving}>Cancel</button><button className="primary" disabled={!remark||saving} onClick={submit}>{saving?'Saving...':'Confirm decision'}</button></div></div></div>}
 function Risk({shown,onReview}){return <><div className="hero"><div><p className="eyebrow">RISK INTELLIGENCE</p><h1>Bidder risk center</h1><p>Prioritize evidence-based review across active tenders.</p></div></div><div className="risk-stats"><div><b>4</b><span>High risk bidders</span></div><div><b>11</b><span>Medium risk bidders</span></div><div><b>13</b><span>Low risk bidders</span></div></div><div className="card table-card"><div className="card-title"><div><h3>Risk queue</h3><p>Sorted by potential impact</p></div><button className="secondary">Filter risk⌄</button></div><table><thead><tr><th>BIDDER</th><th>TENDER</th><th>SCORE</th><th>RISK</th><th>MAIN ISSUE</th><th>ACTION</th></tr></thead><tbody>{shown.map(b=><tr key={b.name}><td><b>{b.name}</b></td><td className="link">GEM/2026/B/10234</td><td><b>{b.score}/100</b></td><td><Badge type={b.risk.toLowerCase()}>{b.risk}</Badge></td><td>{b.issue}</td><td><button className="view" onClick={()=>onReview(b)}>Review →</button></td></tr>)}</tbody></table></div></>}
 const integrationWebsites={
  'GSTN':{primary:'https://www.gst.gov.in/'},
@@ -365,7 +442,7 @@ function VerificationWithFilter({selected,setSelected,expanded,setExpanded,onDec
  const labels={all:'All',verified:'Verified',review:'Needs Review',failed:'Not Verified'};
  const shown=requirements.map((item,index)=>({item,index})).filter(({item})=>filter==='all'||item[1]===filter);
  return <>
-  <div className="verify-head"><div><button className="back">← Back to verifications</button><h1>{bidder.name}</h1><p>Supply of IT Equipment <span>•</span> GEM/2026/B/10234</p></div><div><button className="secondary" onClick={()=>notify('Compliance report prepared')}>⇩ Export report</button><button className="primary" onClick={()=>onDecision('Approve / Qualify')}>Final review →</button></div></div>
+  <div className="verify-head"><div><button className="back">← Back to verifications</button><h1>{bidder.name}</h1><p>Supply of IT Equipment <span>•</span> GEM/2026/B/10234</p></div><div><button className="secondary" onClick={()=>notify('Compliance report prepared')}>⇩ Export report</button><button className="primary" onClick={()=>onDecision({type:'Approve / Qualify',reportId:bidder.id||'demo-report'})}>Final review →</button></div></div>
   <div className="assessment"><div className="score"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42"/><circle className="score-ring" cx="50" cy="50" r="42" style={{strokeDashoffset:264-(264*bidder.score/100)}}/></svg><div><b>{bidder.score}</b><span>/100</span><small>Compliance score</small></div></div><div className="assessment-copy"><p className="eyebrow">AI VERIFICATION COMPLETE</p><h2>{bidder.score>=85?'Strong compliance profile':'Review attention required'}</h2><p>Evidence has been analyzed against 12 tender-specific requirements.</p><Badge type={bidder.risk==='Low'?'verified':'review'}>{bidder.risk.toUpperCase()} RISK</Badge></div><div className="review-summary"><b>8 <small>Verified</small></b><b>2 <small>Needs review</small></b><b>2 <small>Not verified</small></b></div></div>
   <div className="advisory">✦ <b>AI-generated assessment.</b> Final qualification/disqualification decision must be made by the Procurement Officer.</div>
   <div className="split"><div><div className="section-title"><div><h2>Compliance requirements</h2><p>Evidence-based AI assessment for this bidder</p></div><div className="filter-control"><button className="secondary filter-button" onClick={()=>setFilterOpen(!filterOpen)} aria-expanded={filterOpen}>Filter: {labels[filter]} <span>⌄</span></button>{filterOpen&&<div className="filter-menu">{Object.entries(labels).map(([value,label])=><button key={value} className={filter===value?'selected':''} onClick={()=>{setFilter(value);setFilterOpen(false);setExpanded(null)}}><i>{filter===value?'✓':''}</i>{label}</button>)}</div>}</div></div>
@@ -374,14 +451,15 @@ function VerificationWithFilter({selected,setSelected,expanded,setExpanded,onDec
   </div>
  </>
 }
-function TenderList({query,onView,onNew}){
- const tenders=[
+function TenderList({query,onView,onNew,tenders:backendTenders=[]}){
+ const demoTenders=[
   {id:'GEM/2026/B/10234',title:'Supply of IT Equipment',organization:'Central Public Sector Enterprise',status:'In Progress',bids:8,deadline:'26 Aug 2026',category:'IT & Electronics'},
   {id:'GEM/2026/B/09821',title:'Network Infrastructure Modernization',organization:'National Informatics Centre',status:'Completed',bids:12,deadline:'21 Aug 2026',category:'Network Infrastructure'},
   {id:'GEM/2026/B/09718',title:'Cybersecurity Software Licenses',organization:'Ministry of Electronics & IT',status:'In Progress',bids:6,deadline:'29 Aug 2026',category:'Cybersecurity'},
   {id:'GEM/2026/B/09456',title:'Desktop Computers & Peripherals',organization:'Department of Revenue',status:'Pending',bids:10,deadline:'02 Sep 2026',category:'IT Hardware'},
   {id:'GEM/2026/B/09102',title:'Data Centre Maintenance Services',organization:'Central Warehousing Corporation',status:'Completed',bids:5,deadline:'18 Aug 2026',category:'Managed Services'}
  ];
+ const tenders=backendTenders.length?backendTenders:demoTenders;
  const visible=tenders.filter(t=>`${t.id} ${t.title}`.toLowerCase().includes(query.toLowerCase()));
  return <><div className="hero"><div><p className="eyebrow">PROCUREMENT MANAGEMENT</p><h1>Tenders</h1><p>Select a tender to view its complete verification workspace.</p></div></div><div className="tender-title-list">{visible.map((t,index)=><button className="tender-title-bar" onClick={()=>onView(t)} key={t.id}><span className="tender-index">{String(index+1).padStart(2,'0')}</span><span className="tender-title-copy"><b>{t.title}</b><small>{t.id} · {t.organization}</small></span><Badge type={t.status==='Completed'?'verified':t.status==='Pending'?'review':'progress'}>{t.status}</Badge><span className="tender-slider" aria-label={'Open '+t.title}>→</span></button>)}</div>{!visible.length&&<div className="filter-empty">No tenders match your search.</div>}</>
 }
