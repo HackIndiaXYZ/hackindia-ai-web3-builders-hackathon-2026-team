@@ -1,3 +1,4 @@
+from app.routes.ai_pipeline import router as ai_pipeline_router
 from fastapi import FastAPI,Depends
 from app.core.database import engine, Base
 from app.models.audit_log import AuditLog
@@ -36,6 +37,7 @@ from app.models.mock_oem import MockOEM
 from app.models.mock_blacklist import MockBlacklist
 
 
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -61,6 +63,7 @@ app.include_router(mock_verification_router)
 app.include_router(consistency_router)
 app.include_router(audit_log_router)
 app.include_router(officer_decision_router)
+app.include_router(ai_pipeline_router)
 
 @app.get("/")
 def root():
