@@ -3501,3 +3501,37 @@ td small {
 .upload-success {
   color: var(--green);
 }
+
+.tender-requirements-card {
+  margin-top: 18px;
+}
+
+.requirement-box-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.requirement-box {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-fbfcfe);
+  overflow: hidden;
+}
+
+.requirement-box summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  list-style: none;
+  padding: 14px;
+}
+
+.requirement-box summary::-webkit-details-marker { display: none; }
+.requirement-box summary > span:nth-child(2) { display: grid; gap: 4px; flex: 1; }
+.requirement-box summary small { color: var(--muted); }
+.requirement-box-icon { color: var(--green); font-weight: 800; }
+.requirement-box-detail { border-top: 1px solid var(--border); padding: 12px 14px; }
+.requirement-box-detail p { margin: 0 0 8px; line-height: 1.5; }
+.requirement-box-detail small { color: var(--muted); }

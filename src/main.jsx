@@ -11,6 +11,8 @@ import {
   getTenders,
   login as loginRequest,
   register as registerRequest,
+  uploadBidDocument,
+  uploadTenderDocument,
   uploadTenderBid,
 } from "./api";
 
@@ -696,13 +698,14 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
   const [workspaceData, setWorkspaceData] = useState({
     bidders: [], tenders: [], bids: [], documents: [], requirements: [], analyses: [],
   });
-  useEffect(() => {
+  const refreshWorkspace = () => {
     Promise.all([getBidders(), getTenders(), getBids(), getDocuments(), getRequirements(), getAnalyses()])
       .then(([bidders, tenders, bids, documents, requirements, analyses]) => {
         setWorkspaceData({ bidders, tenders, bids, documents, requirements, analyses });
       })
       .catch(() => {});
-  }, []);
+  };
+  useEffect(refreshWorkspace, []);
   const bidderData = workspaceData.bidders.map((item) => ({
     id: item.bidder_id,
     name: item.company_name,
@@ -973,6 +976,7 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
             <Tenders
               query={query}
               apiTenders={workspaceData.tenders}
+              onRefresh={refreshWorkspace}
               onView={(tender) => {
                 setSelectedTender(tender);
                 setPage("Tender Details");
@@ -989,6 +993,9 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
               bids={workspaceData.bids}
               bidders={workspaceData.bidders}
               documents={workspaceData.documents}
+              requirements={workspaceData.requirements}
+              analyses={workspaceData.analyses}
+              onRefresh={refreshWorkspace}
               onBack={() => setPage("Tenders")}
               onVerify={() => selectPage("Bid Verification")}
             />
@@ -3396,7 +3403,10 @@ function VerificationWithFilter({
   );
 }
 function TenderList({ query, onView, onNew, apiTenders = [] }) {
-  const tenders = [];
+  const pdfTenders = [
+    { id: "GEM/2026/B/7754352", title: "C12M260041 77-E-01E/F Complete U-Tube Bundle Assembly", organization: "Chennai Petroleum Corporation Limited", status: "PDF tender", deadline: "22 Jul 2026", category: "Shell & Tube Heat Exchanger", requirements: ["Experience Criteria", "Bidder Turnover", "Additional ATC Documents", "Make in India / MII", "MSE purchase preference"] },
+    { id: "GEM/2026/B/7990502", title: "PIPE, CS, EFW, A672, GRB60, CL. 12, BE, 24IN, STD", organization: "Chennai Petroleum Corporation Limited", status: "PDF tender", deadline: "24 Sep 2026", category: "Butt-Weld Pipe Fittings", requirements: ["Experience Criteria Documents", "Section 3 Submission", "Section 8 Submission", "MSE purchase preference", "Technical Specifications"] },
+  ];
   /*
     {
       id: "GEM/2026/B/10234",
@@ -3454,7 +3464,8 @@ function TenderList({ query, onView, onNew, apiTenders = [] }) {
     deadline: item.bid_end_date ? new Date(item.bid_end_date).toLocaleDateString() : "Not specified",
     category: item.item_category || "General",
   }));
-  const visible = backendTenders.filter((t) =>
+  const rows = backendTenders.length ? backendTenders : pdfTenders;
+  const visible = rows.filter((t) =>
     `${t.id} ${t.title}`.toLowerCase().includes(query.toLowerCase()),
   );
   return (
@@ -3505,16 +3516,23 @@ function TenderList({ query, onView, onNew, apiTenders = [] }) {
     </>
   );
 }
-function TenderDetails({ tender, onBack, onVerify, bids = [], bidders = [], documents = [] }) {
+function TenderDetails({ tender, onBack, onVerify, bids = [], bidders = [], documents = [], requirements = [], analyses = [], onRefresh }) {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [companyName, setCompanyName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [uploadSuccess, setUploadSuccess] = useState("");
   const t = tender;
   const tenderBids = t ? bids.filter((bid) => bid.tender_id === t.tender_id) : [];
   const tenderDocuments = t ? documents.filter((document) => document.tender_id === t.tender_id) : [];
+  const tenderRequirements = t && requirements.length
+    ? requirements.filter((requirement) => requirement.tender_id === t.tender_id)
+    : (t?.requirements || []).map((text, index) => ({requirement_id: `${t.id}-${index}`, requirement_type: text, requirement_text: `${text} should be submitted and verified with the bidder PDF.`, mandatory: true, source_page: "Tender PDF"}));
   const bidderById = new Map(bidders.map((bidder) => [bidder.bidder_id, bidder]));
+  const analysisByBidder = new Map(
+    analyses.filter((analysis) => analysis.tender_id === t?.tender_id).map((analysis) => [analysis.bidder_id, analysis]),
+  );
   const submitBid = async (event) => {
     event.preventDefault();
     if (!selectedFile || selectedFile.type !== "application/pdf") {
@@ -3524,9 +3542,10 @@ function TenderDetails({ tender, onBack, onVerify, bids = [], bidders = [], docu
     setUploading(true);
     setUploadError("");
     try {
-      await uploadTenderBid(t.tender_id, selectedFile, t.id);
-      setUploadSuccess(`${selectedFile.name} uploaded successfully.`);
+      const result = await uploadBidDocument(t.tender_id, companyName, selectedFile, t.id);
+      setUploadSuccess(`${selectedFile.name} parsed and scored: ${result?.score ?? "pending"}/100.`);
       setSelectedFile(null);
+      onRefresh?.();
     } catch (error) {
       setUploadError(error.message);
     } finally {
@@ -3624,6 +3643,24 @@ function TenderDetails({ tender, onBack, onVerify, bids = [], bidders = [], docu
           </div>
         </div>
       </div>
+      <div className="card tender-requirements-card">
+        <div className="card-title">
+          <div>
+            <h3>Tender requirements</h3>
+            <p>Click a requirement to view the extracted obligation and source page.</p>
+          </div>
+        </div>
+        {tenderRequirements.length ? (
+          <div className="requirement-box-grid">
+            {tenderRequirements.map((requirement) => (
+              <details className="requirement-box" key={requirement.requirement_id}>
+                <summary><span className="requirement-box-icon">✓</span><span><b>{requirement.requirement_type || "Requirement"}</b><small>{requirement.mandatory ? "Mandatory" : "Optional"}</small></span><span className="chev">⌄</span></summary>
+                <div className="requirement-box-detail"><p>{requirement.requirement_text}</p><small>Extracted from page {requirement.source_page || "not recorded"}</small></div>
+              </details>
+            ))}
+          </div>
+        ) : <div className="filter-empty">Upload the tender PDF to extract its key requirements here.</div>}
+      </div>
       <div className="card table-card">
         <div className="card-title">
           <div>
@@ -3655,14 +3692,15 @@ function TenderDetails({ tender, onBack, onVerify, bids = [], bidders = [], docu
           <tbody>
             {tenderBids.map((bid) => {
               const bidder = bidderById.get(bid.bidder_id);
+              const analysis = analysisByBidder.get(bid.bidder_id);
               return (
               <tr key={bid.bid_id}>
                 <td>
                   <b>{bidder?.company_name || `Bidder #${bid.bidder_id}`}</b>
                 </td>
-                <td>Not analyzed</td>
+                <td>{analysis?.overall_score != null ? `${analysis.overall_score}/100` : "Analysis pending"}</td>
                 <td>
-                  <Badge type="review">Pending</Badge>
+                  <Badge type={Number(analysis?.overall_score || 0) >= 85 ? "verified" : "review"}>{analysis?.overall_status || "Pending"}</Badge>
                 </td>
                 <td>
                   <Badge type={bid.bid_status === "verified" ? "verified" : "review"}>
@@ -3688,6 +3726,10 @@ function TenderDetails({ tender, onBack, onVerify, bids = [], bidders = [], docu
             <p className="eyebrow">NEW BID SUBMISSION</p>
             <h2>Upload company bid</h2>
             <p>Select the company bid PDF for this tender. It will be stored in the backend for verification.</p>
+            <label>
+              Company name
+              <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Enter bidder company name" required />
+            </label>
             <label>
               Bid PDF
               <input type="file" accept="application/pdf,.pdf" onChange={(event) => { setSelectedFile(event.target.files?.[0] || null); setUploadError(""); }} />

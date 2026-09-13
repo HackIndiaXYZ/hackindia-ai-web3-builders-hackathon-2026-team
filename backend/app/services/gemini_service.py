@@ -18,7 +18,7 @@ client = genai.Client(api_key=API_KEY) if API_KEY else None
 # Use a model supported by your Gemini API account.
 GEMINI_MODEL = os.getenv(
     "GEMINI_MODEL",
-    "gemini-2.0-flash"
+    "gemini-3.6-flash"
 )
 
 

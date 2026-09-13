@@ -41,6 +41,43 @@ export function getDocuments() { return request('/documents/'); }
 export function getRequirements() { return request('/compliance-requirements/'); }
 export function getAnalyses() { return request('/compliance-analyses/'); }
 
+export async function uploadTenderDocument(tenderId, file) {
+ const token = window.localStorage.getItem('gem_access_token');
+ const formData = new FormData();
+ formData.append('file', file);
+ const response = await fetch(`${API_URL}/documents/upload-tender?tender_id=${encodeURIComponent(tenderId)}`, {method: 'POST', headers: token ? {Authorization: `Bearer ${token}`} : {}, body: formData});
+ if (!response.ok) throw new Error((await response.json()).detail || `Tender upload failed (${response.status})`);
+ return response.json();
+}
+
+export async function importTenderDocument(file) {
+ const token = window.localStorage.getItem('gem_access_token');
+ const formData = new FormData();
+ formData.append('file', file);
+ const response = await fetch(`${API_URL}/documents/import-tender`, {method: 'POST', headers: token ? {Authorization: `Bearer ${token}`} : {}, body: formData});
+ if (!response.ok) throw new Error((await response.json()).detail || `Tender import failed (${response.status})`);
+ return response.json();
+}
+
+export async function uploadBidDocument(tenderId, companyName, file, bidNumber) {
+ const token = window.localStorage.getItem('gem_access_token');
+ const formData = new FormData();
+ formData.append('file', file);
+ const tenderQuery = tenderId ? `tender_id=${encodeURIComponent(tenderId)}` : `bid_number=${encodeURIComponent(bidNumber)}`;
+ let response;
+ try {
+  response = await fetch(`${API_URL}/documents/upload-bid?${tenderQuery}&company_name=${encodeURIComponent(companyName)}`, {method: 'POST', headers: token ? {Authorization: `Bearer ${token}`} : {}, body: formData});
+ } catch (error) {
+  throw new Error(`Backend unavailable at ${API_URL}. Please start FastAPI and try again.`);
+ }
+ if (!response.ok) {
+  let message = `Bid upload failed (${response.status})`;
+  try { message = (await response.json()).detail || message; } catch (e) {}
+  throw new Error(message);
+ }
+ return response.json();
+}
+
 export async function uploadTenderBid(tenderId, file, bidNumber) {
  const token = window.localStorage.getItem('gem_access_token');
  const formData = new FormData();
