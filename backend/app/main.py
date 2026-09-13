@@ -1,3 +1,4 @@
+from app.routes.ai_pipeline import router as ai_pipeline_router
 from fastapi import FastAPI,Depends
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
@@ -37,6 +38,7 @@ from app.models.mock_oem import MockOEM
 from app.models.mock_blacklist import MockBlacklist
 
 
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -47,14 +49,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-    ],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -77,6 +72,7 @@ app.include_router(mock_verification_router)
 app.include_router(consistency_router)
 app.include_router(audit_log_router)
 app.include_router(officer_decision_router)
+app.include_router(ai_pipeline_router)
 
 @app.get("/")
 def root():

@@ -51,6 +51,7 @@ const nav = [
   "Tenders",
   "Compliance Analysis",
   "Risk Center",
+  "Reports",
   "Audit Trail",
   "Integrations",
   "Settings",

@@ -216,6 +216,7 @@ def run_compliance_analysis(
         verification_result = verify_requirement(
             requirement.requirement_type,
             bidder,
+            db,
             extra_identifiers
         )
 
