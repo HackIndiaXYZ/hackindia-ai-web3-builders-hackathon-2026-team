@@ -1,6 +1,40 @@
 import re
 
 
+def evaluate_requirement(requirement_type, verification_result, mandatory=True):
+    result = verification_result or {}
+    verified = result.get("status") == "VERIFIED"
+    return {
+        "status": "COMPLIANT" if verified else "NON_COMPLIANT" if mandatory else "REVIEW",
+        "score": 100.0 if verified else 0.0,
+        "explanation": result.get("evidence", "Verification result was not available."),
+        "evidence": result.get("evidence"),
+        "ai_confidence": result.get("confidence", 0.0),
+    }
+
+
+def calculate_overall_score(results):
+    scores = [float(result.get("score", 0)) for result in results]
+    return round(sum(scores) / len(scores), 2) if scores else 0.0
+
+
+def determine_overall_status(results):
+    statuses = {result.get("status") for result in results}
+    if "NON_COMPLIANT" in statuses:
+        return "NON_COMPLIANT"
+    if "REVIEW" in statuses:
+        return "REVIEW"
+    return "COMPLIANT"
+
+
+def determine_risk(score):
+    if score >= 85:
+        return "LOW"
+    if score >= 60:
+        return "MEDIUM"
+    return "HIGH"
+
+
 # ============================================================
 # HELPERS
 # ============================================================

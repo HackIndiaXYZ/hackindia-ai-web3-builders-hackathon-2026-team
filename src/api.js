@@ -36,4 +36,28 @@ export function register(name, email, password) {
 
 export function getTenders() { return request('/tenders/'); }
 export function getBidders() { return request('/bidders/'); }
+export function getBids() { return request('/bids/'); }
+export function getDocuments() { return request('/documents/'); }
+export function getRequirements() { return request('/compliance-requirements/'); }
+export function getAnalyses() { return request('/compliance-analyses/'); }
+
+export async function uploadTenderBid(tenderId, file, bidNumber) {
+ const token = window.localStorage.getItem('gem_access_token');
+ const formData = new FormData();
+ formData.append('file', file);
+ formData.append('document_type', 'bid');
+ const tenderQuery = tenderId ? `tender_id=${encodeURIComponent(tenderId)}` : `bid_number=${encodeURIComponent(bidNumber)}`;
+ const response = await fetch(`${API_URL}/documents/upload?${tenderQuery}&document_type=bid`, {
+  method: 'POST',
+  headers: token ? {Authorization: `Bearer ${token}`} : {},
+  body: formData
+ });
+ if (!response.ok) {
+  let message = `Upload failed (${response.status})`;
+  try { message = (await response.json()).detail || message; } catch (e) {}
+  throw new Error(message);
+ }
+ return response.json();
+}
+
 export function clearSession() { window.localStorage.removeItem('gem_access_token'); }

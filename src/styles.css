@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap");
 :root {
   --navy: #082c57b5;
   --blue: #1466c3;
@@ -3450,4 +3450,54 @@ td small {
   background: var(--blue);
   border: 0;
   cursor: pointer;
+}
+
+.add-bid-button {
+  border: 0;
+  border-radius: 6px;
+  background: #1466c3;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 10px 18px;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.add-bid-button:hover:not(:disabled) {
+  background: #0b55aa;
+  transform: translateY(-1px);
+}
+
+.add-bid-button:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
+.add-bid-modal {
+  position: relative;
+  width: min(520px, calc(100vw - 32px));
+}
+
+.add-bid-modal > label {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.add-bid-modal input[type="file"] {
+  border: 1px dashed #9db8d5;
+  border-radius: 6px;
+  padding: 14px;
+  width: 100%;
+}
+
+.upload-file-name,
+.upload-success {
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+.upload-success {
+  color: var(--green);
 }

@@ -52,16 +52,26 @@ def create_document(
     return new_document
 @router.post("/upload", response_model=DocumentResponse)
 def upload_document(
-    tender_id: int,
+    tender_id: int | None = None,
+    bid_number: str | None = None,
     document_type: str | None = None,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Check whether tender exists
-    tender = db.query(Tender).filter(
-        Tender.tender_id == tender_id
-    ).first()
+    tender = None
+    if tender_id is not None:
+        tender = db.query(Tender).filter(Tender.tender_id == tender_id).first()
+    elif bid_number:
+        tender = db.query(Tender).filter(Tender.bid_number == bid_number).first()
+        if not tender:
+            tender = Tender(
+                bid_number=bid_number,
+                tender_title=f"Tender {bid_number}",
+                tender_status="In Progress",
+            )
+            db.add(tender)
+            db.flush()
 
     if not tender:
         raise HTTPException(
@@ -99,7 +109,7 @@ def upload_document(
 
     # Store file information in database
     new_document = Document(
-        tender_id=tender_id,
+        tender_id=tender.tender_id,
         uploaded_by=current_user.id,
         filename=filename,
         file_path=file_path,

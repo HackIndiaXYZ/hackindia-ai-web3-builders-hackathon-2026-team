@@ -3,10 +3,15 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import {
   clearSession,
+  getAnalyses,
+  getBids,
   getBidders,
+  getDocuments,
+  getRequirements,
   getTenders,
   login as loginRequest,
   register as registerRequest,
+  uploadTenderBid,
 } from "./api";
 
 const bidders = [
@@ -51,7 +56,6 @@ const nav = [
   "Tenders",
   "Compliance Analysis",
   "Risk Center",
-  "Reports",
   "Audit Trail",
   "Integrations",
   "Settings",
@@ -678,7 +682,7 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
     [showWorkflow, setWorkflow] = useState(false),
     [step, setStep] = useState(1),
     [query, setQuery] = useState(""),
-    [selected, setSelected] = useState("ABC Technologies Pvt. Ltd."),
+    [selected, setSelected] = useState(""),
     [expanded, setExpanded] = useState(null),
     [decision, setDecision] = useState(null),
     [remark, setRemark] = useState(""),
@@ -689,31 +693,33 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
     setTimeout(() => setToast(""), 2600);
   };
   const [selectedTender, setSelectedTender] = useState(null);
-  const [remoteBidders, setRemoteBidders] = useState([]),
-    [remoteTenders, setRemoteTenders] = useState([]);
+  const [workspaceData, setWorkspaceData] = useState({
+    bidders: [], tenders: [], bids: [], documents: [], requirements: [], analyses: [],
+  });
   useEffect(() => {
-    Promise.all([getBidders(), getTenders()])
-      .then(([apiBidders, apiTenders]) => {
-        setRemoteBidders(
-          apiBidders.map((item) => ({
-            name: item.company_name,
-            score: 0,
-            risk: "Review",
-            issue: "Verification pending",
-            state: "Needs Review",
-          })),
-        );
-        setRemoteTenders(apiTenders);
+    Promise.all([getBidders(), getTenders(), getBids(), getDocuments(), getRequirements(), getAnalyses()])
+      .then(([bidders, tenders, bids, documents, requirements, analyses]) => {
+        setWorkspaceData({ bidders, tenders, bids, documents, requirements, analyses });
       })
       .catch(() => {});
   }, []);
-  const bidderData = remoteBidders.length ? remoteBidders : bidders;
+  const bidderData = workspaceData.bidders.map((item) => ({
+    id: item.bidder_id,
+    name: item.company_name,
+    score: 0,
+    risk: "Review",
+    issue: "Verification pending",
+    state: "Needs Review",
+  }));
+  useEffect(() => {
+    if (!selected && bidderData.length) setSelected(bidderData[0].name);
+  }, [selected, bidderData.length]);
   const shown = bidderData.filter((b) =>
     b.name.toLowerCase().includes(query.toLowerCase()),
   );
   const selectPage = (p) => {
     setPage(p);
-    if (p === "Bid Verification") setSelected("ABC Technologies Pvt. Ltd.");
+    if (p === "Bid Verification" && bidderData.length) setSelected(bidderData[0].name);
   };
   const profileRef = useRef(null);
   useEffect(() => {
@@ -960,12 +966,13 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
               }}
               onPage={selectPage}
               shown={shown}
+              data={workspaceData}
             />
           )}
           {page === "Tenders" && (
             <Tenders
               query={query}
-              apiTenders={remoteTenders}
+              apiTenders={workspaceData.tenders}
               onView={(tender) => {
                 setSelectedTender(tender);
                 setPage("Tender Details");
@@ -979,6 +986,9 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
           {page === "Tender Details" && (
             <TenderDetails
               tender={selectedTender}
+              bids={workspaceData.bids}
+              bidders={workspaceData.bidders}
+              documents={workspaceData.documents}
               onBack={() => setPage("Tenders")}
               onVerify={() => selectPage("Bid Verification")}
             />
@@ -991,6 +1001,9 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
               setExpanded={setExpanded}
               onDecision={setDecision}
               notify={notify}
+              apiBidders={workspaceData.bidders}
+              apiRequirements={workspaceData.requirements}
+              apiAnalyses={workspaceData.analyses}
             />
           )}
           {page === "Risk Center" && (
@@ -1003,7 +1016,6 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
             />
           )}
           {page === "Integrations" && <Integrations notify={notify} />}
-          {page === "Reports" && <Reports notify={notify} />}
           {page === "Audit Trail" && <Audit />}
           {page === "Settings" && (
             <Settings
@@ -1020,7 +1032,6 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
             "Bid Verification",
             "Risk Center",
             "Integrations",
-            "Reports",
             "Audit Trail",
             "Settings",
           ].includes(page) && <Placeholder title={page} />}
@@ -1058,14 +1069,14 @@ function App({ onLogout, appearance, notifPrefs, setNotifPrefs }) {
     </div>
   );
 }
-function Dashboard({ onNew, onPage, shown }) {
+function Dashboard({ onNew, onPage, shown, data }) {
   const kpis = [
-    ["◈", "12", "Active Tenders", "+2 this month"],
-    ["◷", "28", "Bids Under Verification", "6 due today"],
-    ["◉", "8", "Pending Reviews", "Action needed"],
-    ["⚠", "4", "High Risk Bidders", "2 new this week"],
-    ["✓", "146", "Verified Bids", "+12.5%"],
-    ["◌", "18 min", "Avg. Verification Time", "4 min faster"],
+    ["◈", data.tenders.length, "Active Tenders", "Live database count"],
+    ["◷", data.bids.length, "Bids Under Verification", "Live database count"],
+    ["◉", data.analyses.filter((analysis) => analysis.overall_status === "review" || analysis.status === "pending").length, "Pending Reviews", "Live analysis status"],
+    ["⚠", data.analyses.filter((analysis) => analysis.overall_status === "non_compliant").length, "High Risk Bidders", "Live analysis status"],
+    ["✓", data.analyses.filter((analysis) => analysis.overall_status === "compliant").length, "Verified Bids", "Live analysis status"],
+    ["◌", data.documents.length, "Uploaded Documents", "Live database count"],
   ];
   return (
     <>
@@ -2103,42 +2114,6 @@ function IntegrationConfigModal({
     </div>
   );
 }
-function Reports({ notify }) {
-  return (
-    <>
-      <div className="hero">
-        <div>
-          <p className="eyebrow">AUDITABLE OUTPUTS</p>
-          <h1>Reports</h1>
-          <p>Generate procurement-ready compliance and risk reports.</p>
-        </div>
-      </div>
-      <div className="report-grid">
-        {[
-          "Bid Compliance Report",
-          "Tender Compliance Summary",
-          "Risk Assessment Report",
-          "Audit Report",
-          "Government Verification Report",
-        ].map((x) => (
-          <div className="card report" key={x}>
-            <div>▧</div>
-            <h3>{x}</h3>
-            <p>
-              Exported with tender-specific evidence and officer review trail.
-            </p>
-            <button
-              className="primary"
-              onClick={() => notify(x + " generated")}
-            >
-              Generate Report
-            </button>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
 function Audit() {
   return (
     <>
@@ -3012,7 +2987,7 @@ function HelpChat() {
   const answer = (question) => {
     const q = question.toLowerCase();
     if (q.includes("report"))
-      return "Open Reports from the sidebar, choose a report type, then select Generate Report. The prototype prepares a tender-specific report with evidence and officer review context.";
+      return "Reports are not available in this workspace. I can help with verification, bidder risk, evidence, audit trail, and officer decisions.";
     if (q.includes("verification") || q.includes("upload"))
       return "Select New Verification on the dashboard. Add tender details, upload the tender and bidder documents, then follow the AI verification progress. The officer reviews the final results.";
     if (q.includes("risk"))
@@ -3021,7 +2996,7 @@ function HelpChat() {
       return "AI recommendations are advisory only. In Bid Verification, use Final Review, add mandatory officer remarks, and confirm your assessment to record it in the audit trail.";
     if (q.includes("evidence") || q.includes("document"))
       return "Expand a compliance requirement and select View evidence to inspect the extracted document information. You can also use Why? for a concise, auditable AI reasoning summary.";
-    return "I can help with verification, bidder risk, evidence, reports, audit trail, and officer decisions. Try asking, “How do I generate a report?”";
+    return "I can help with verification, bidder risk, evidence, audit trail, and officer decisions.";
   };
   const send = (value = input) => {
     const text = value.trim();
@@ -3179,25 +3154,34 @@ function VerificationWithFilter({
   setExpanded,
   onDecision,
   notify,
+  apiBidders = [],
+  apiRequirements = [],
+  apiAnalyses = [],
 }) {
   const [filter, setFilter] = useState("all");
   const [filterOpen, setFilterOpen] = useState(false);
-  const bidder = bidders.find((x) => x.name === selected) || bidders[0];
+  const bidder = apiBidders.find((item) => item.company_name === selected);
+  const analysis = bidder
+    ? apiAnalyses.find((item) => item.bidder_id === bidder.bidder_id)
+    : null;
   const labels = {
     all: "All",
     verified: "Verified",
     review: "Needs Review",
     failed: "Not Verified",
   };
-  const shown = requirements
-    .map((item, index) => ({ item, index }))
+  const shown = apiRequirements
+    .map((requirement, index) => ({
+      item: [requirement.requirement_text, "review", requirement.requirement_type || "Requirement", requirement.source_page || "Source page not recorded"],
+      index,
+    }))
     .filter(({ item }) => filter === "all" || item[1] === filter);
   return (
     <>
       <div className="verify-head">
         <div>
           <button className="back">← Back to verifications</button>
-          <h1>{bidder.name}</h1>
+          <h1>{bidder?.company_name || "No bidder selected"}</h1>
           <p>
             Supply of IT Equipment <span>•</span> GEM/2026/B/10234
           </p>
@@ -3227,11 +3211,11 @@ function VerificationWithFilter({
                 cx="50"
                 cy="50"
                 r="42"
-                style={{ strokeDashoffset: 264 - (264 * bidder.score) / 100 }}
+                style={{ strokeDashoffset: 264 - (264 * Number(analysis?.overall_score || 0)) / 100 }}
               />
             </svg>
             <div className="score-value">
-              <span className="score-number">{bidder.score}</span>
+              <span className="score-number">{analysis?.overall_score ?? "-"}</span>
               <span className="score-total">/100</span>
             </div>
           </div>
@@ -3240,15 +3224,15 @@ function VerificationWithFilter({
         <div className="assessment-copy">
           <p className="eyebrow">AI VERIFICATION COMPLETE</p>
           <h2>
-            {bidder.score >= 85
+            {Number(analysis?.overall_score || 0) >= 85
               ? "Strong compliance profile"
               : "Review attention required"}
           </h2>
           <p>
-            Evidence has been analyzed against 12 tender-specific requirements.
+            {apiRequirements.length} tender-specific requirements loaded from the backend.
           </p>
-          <Badge type={bidder.risk === "Low" ? "verified" : "review"}>
-            {bidder.risk.toUpperCase()} RISK
+          <Badge type={analysis?.overall_status === "compliant" ? "verified" : "review"}>
+            {(analysis?.overall_status || "PENDING").toUpperCase()}
           </Badge>
         </div>
         <div className="review-summary">
@@ -3411,8 +3395,9 @@ function VerificationWithFilter({
     </>
   );
 }
-function TenderList({ query, onView, onNew }) {
-  const tenders = [
+function TenderList({ query, onView, onNew, apiTenders = [] }) {
+  const tenders = [];
+  /*
     {
       id: "GEM/2026/B/10234",
       title: "Supply of IT Equipment",
@@ -3458,8 +3443,18 @@ function TenderList({ query, onView, onNew }) {
       deadline: "18 Aug 2026",
       category: "Managed Services",
     },
-  ];
-  const visible = tenders.filter((t) =>
+  */
+  const backendTenders = apiTenders.map((item) => ({
+    tender_id: item.tender_id,
+    id: item.bid_number,
+    title: item.tender_title || item.bid_number,
+    organization: item.source_name || "Procurement organization",
+    status: item.tender_status || "Pending",
+    bids: 0,
+    deadline: item.bid_end_date ? new Date(item.bid_end_date).toLocaleDateString() : "Not specified",
+    category: item.item_category || "General",
+  }));
+  const visible = backendTenders.filter((t) =>
     `${t.id} ${t.title}`.toLowerCase().includes(query.toLowerCase()),
   );
   return (
@@ -3510,15 +3505,33 @@ function TenderList({ query, onView, onNew }) {
     </>
   );
 }
-function TenderDetails({ tender, onBack, onVerify }) {
-  const t = tender || {
-    id: "GEM/2026/B/10234",
-    title: "Supply of IT Equipment",
-    organization: "Central Public Sector Enterprise",
-    status: "In Progress",
-    bids: 8,
-    deadline: "26 Aug 2026",
-    category: "IT & Electronics",
+function TenderDetails({ tender, onBack, onVerify, bids = [], bidders = [], documents = [] }) {
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [uploadSuccess, setUploadSuccess] = useState("");
+  const t = tender;
+  const tenderBids = t ? bids.filter((bid) => bid.tender_id === t.tender_id) : [];
+  const tenderDocuments = t ? documents.filter((document) => document.tender_id === t.tender_id) : [];
+  const bidderById = new Map(bidders.map((bidder) => [bidder.bidder_id, bidder]));
+  const submitBid = async (event) => {
+    event.preventDefault();
+    if (!selectedFile || selectedFile.type !== "application/pdf") {
+      setUploadError("Please choose a PDF bid document.");
+      return;
+    }
+    setUploading(true);
+    setUploadError("");
+    try {
+      await uploadTenderBid(t.tender_id, selectedFile, t.id);
+      setUploadSuccess(`${selectedFile.name} uploaded successfully.`);
+      setSelectedFile(null);
+    } catch (error) {
+      setUploadError(error.message);
+    } finally {
+      setUploading(false);
+    }
   };
   return (
     <>
@@ -3552,7 +3565,7 @@ function TenderDetails({ tender, onBack, onVerify }) {
         </div>
         <div>
           <small>BIDDER SUBMISSIONS</small>
-          <b>{t.bids}</b>
+          <b>{tenderBids.length}</b>
           <p>Documents received through GeM</p>
         </div>
         <div>
@@ -3585,7 +3598,7 @@ function TenderDetails({ tender, onBack, onVerify }) {
             </div>
             <div>
               <small>Requirements extracted</small>
-              <b>12 compliance requirements</b>
+              <b>{tenderDocuments.length} uploaded documents</b>
             </div>
             <div>
               <small>Document status</small>
@@ -3600,7 +3613,7 @@ function TenderDetails({ tender, onBack, onVerify }) {
               <span>✓</span> Tender document analyzed <b>Complete</b>
             </p>
             <p>
-              <span>✓</span> Bidder documents received <b>{t.bids} bidders</b>
+              <span>✓</span> Bidder documents received <b>{tenderBids.length} bids</b>
             </p>
             <p>
               <span>◉</span> Compliance verification <b>In progress</b>
@@ -3617,6 +3630,17 @@ function TenderDetails({ tender, onBack, onVerify }) {
             <h3>Bidder submissions</h3>
             <p>Verification status for this tender</p>
           </div>
+          <button
+            type="button"
+            className="add-bid-button"
+            onClick={() => {
+              setUploadOpen(true);
+              setUploadError("");
+              setUploadSuccess("");
+            }}
+          >
+            + Add Bid
+          </button>
         </div>
         <table>
           <thead>
@@ -3629,18 +3653,20 @@ function TenderDetails({ tender, onBack, onVerify }) {
             </tr>
           </thead>
           <tbody>
-            {bidders.map((b) => (
-              <tr key={b.name}>
+            {tenderBids.map((bid) => {
+              const bidder = bidderById.get(bid.bidder_id);
+              return (
+              <tr key={bid.bid_id}>
                 <td>
-                  <b>{b.name}</b>
+                  <b>{bidder?.company_name || `Bidder #${bid.bidder_id}`}</b>
                 </td>
-                <td>{b.score}/100</td>
+                <td>Not analyzed</td>
                 <td>
-                  <Badge type={b.risk.toLowerCase()}>{b.risk}</Badge>
+                  <Badge type="review">Pending</Badge>
                 </td>
                 <td>
-                  <Badge type={b.state === "Verified" ? "verified" : "review"}>
-                    {b.state}
+                  <Badge type={bid.bid_status === "verified" ? "verified" : "review"}>
+                    {bid.bid_status || "Submitted"}
                   </Badge>
                 </td>
                 <td>
@@ -3649,10 +3675,33 @@ function TenderDetails({ tender, onBack, onVerify }) {
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
+        {!tenderBids.length && <div className="filter-empty">No bids have been submitted for this tender.</div>}
       </div>
+      {uploadOpen && (
+        <div className="modal-bg" onMouseDown={(event) => event.target === event.currentTarget && setUploadOpen(false)}>
+          <form className="decision add-bid-modal" onSubmit={submitBid}>
+            <button type="button" className="close" onClick={() => setUploadOpen(false)}>×</button>
+            <p className="eyebrow">NEW BID SUBMISSION</p>
+            <h2>Upload company bid</h2>
+            <p>Select the company bid PDF for this tender. It will be stored in the backend for verification.</p>
+            <label>
+              Bid PDF
+              <input type="file" accept="application/pdf,.pdf" onChange={(event) => { setSelectedFile(event.target.files?.[0] || null); setUploadError(""); }} />
+            </label>
+            {selectedFile && <p className="upload-file-name">Selected: {selectedFile.name}</p>}
+            {uploadError && <p className="login-error" role="alert">{uploadError}</p>}
+            {uploadSuccess && <p className="upload-success" role="status">{uploadSuccess}</p>}
+            <div className="modal-footer">
+              <button type="button" className="secondary" onClick={() => setUploadOpen(false)}>Cancel</button>
+              <button type="submit" className="add-bid-button" disabled={uploading}>{uploading ? "Uploading..." : "Upload bid PDF"}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </>
   );
 }

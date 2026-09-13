@@ -11,15 +11,7 @@ from app.prompts.rule_engine_prompt import RULE_ENGINE_PROMPT
 load_dotenv()
 
 API_KEY = os.getenv("GEMINI_API_KEY")
-
-if not API_KEY:
-    raise RuntimeError(
-        "GEMINI_API_KEY is missing in .env file"
-    )
-
-client = genai.Client(
-    api_key=API_KEY
-)
+client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 
 # IMPORTANT:
@@ -31,6 +23,11 @@ GEMINI_MODEL = os.getenv(
 
 
 def ask_gemini(prompt: str) -> str:
+
+    if client is None:
+        raise RuntimeError(
+            "Gemini is not configured. Add GEMINI_API_KEY to backend/.env to run AI analysis."
+        )
 
     max_retries = 3
 
@@ -48,7 +45,7 @@ def ask_gemini(prompt: str) -> str:
             )
 
             response = client.models.generate_content(
-                model="gemini-3.6-flash",
+                model=GEMINI_MODEL,
                 contents=prompt,
             )
 
